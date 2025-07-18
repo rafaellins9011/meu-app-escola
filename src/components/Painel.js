@@ -18,7 +18,8 @@ import html2canvas from 'html2canvas';
 
 // NOVIDADE FIRESTORE: Importar db e funções do Firestore
 import { db } from '../firebaseConfig'; // Importa a instância do Firestore
-import { collection, getDocs, doc, setDoc, updateDoc, writeBatch, getDoc } from 'firebase/firestore'; // Funções Firestore
+import { collection, getDocs, doc, setDoc, updateDoc, writeBatch, getDoc, onSnapshot } from 'firebase/firestore';
+ // Funções Firestore
 
 const formatarData = (dataStr) => {
   if (!dataStr) return '';
