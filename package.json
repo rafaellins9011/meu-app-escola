@@ -4,6 +4,7 @@
   "private": true,
   "dependencies": {
     "chart.js": "^4.5.0",
+    "firebase": "^12.0.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^3.0.1",
     "jspdf-autotable": "^5.0.2",
@@ -32,4 +33,3 @@
     ]
   }
 }
-

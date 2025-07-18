@@ -1,5 +1,6 @@
 // Arquivo: src/components/Tabela.js
 // ATUALIZAÇÃO: Adicionado o botão de recomposição de faltas.
+// CORREÇÃO: Passando o objeto de evento corretamente para onOpenObservationDropdown.
 
 import React from 'react';
 
@@ -50,7 +51,9 @@ const Tabela = ({ registros, onAtualizar, onWhatsapp, onEditar, onExcluir, dataS
         delete atualizado.justificativas[chave];
     }
 
-    onAtualizar(originalIndex, atualizado);
+    // No contexto do Firestore, 'originalIndex' não é mais usado para identificar o aluno
+    // Usamos 'aluno.id' que vem do Firestore.
+    onAtualizar(aluno.id, atualizado); // Passa o ID do aluno e o objeto atualizado
   };
 
   return (
@@ -91,18 +94,18 @@ const Tabela = ({ registros, onAtualizar, onWhatsapp, onEditar, onExcluir, dataS
               const observacaoAtualArray = aluno.observacoes?.[chaveObservacao] || [];
               const observacaoAtualDisplay = Array.isArray(observacaoAtualArray) ? observacaoAtualArray : (observacaoAtualArray ? [observacaoAtualArray] : []);
               
-              const isSelected = linhaSelecionada === aluno.originalIndex;
+              // Usamos aluno.id como a chave única para o React, pois ele é estável e único do Firestore.
+              const isSelected = linhaSelecionada === aluno.id; // Agora compara com o ID do aluno
 
               return (
                 <tr 
-                  key={aluno.originalIndex} 
-                  onClick={() => onSelecionarLinha(aluno.originalIndex)}
+                  key={aluno.id} // CORRIGIDO: Usar aluno.id como key
+                  onClick={() => onSelecionarLinha(aluno.id)} // CORRIGIDO: Passa o ID do aluno
                   className={`border-b border-gray-200 dark:border-gray-700 transition-colors duration-150 cursor-pointer 
                     ${isSelected 
                       ? 'bg-green-200 dark:bg-green-800' 
                       : 'even:bg-gray-100 dark:even:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'
-                    }`
-                  }
+                    }`}
                 >
                   <td className="py-3 px-4 text-sm text-gray-900 dark:text-gray-100">{index + 1}</td>
                   <td className="py-3 px-4 text-sm text-gray-900 dark:text-gray-100">{aluno.nome}</td>
@@ -114,7 +117,13 @@ const Tabela = ({ registros, onAtualizar, onWhatsapp, onEditar, onExcluir, dataS
                       value={justificativaDropdown}
                       onChange={(e) => {
                         e.stopPropagation(); 
-                        handleJustificativa(aluno, aluno.originalIndex, e.target.value);
+                        onAtualizar(aluno.id, { // CORRIGIDO: Passa aluno.id
+                          ...aluno,
+                          justificativas: {
+                            ...aluno.justificativas,
+                            [chaveJustificativa]: motivoFinal(e.target.value, aluno, chaveJustificativa) // Chamada de função auxiliar
+                          }
+                        });
                       }}
                       onClick={(e) => e.stopPropagation()} 
                       className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
@@ -133,7 +142,7 @@ const Tabela = ({ registros, onAtualizar, onWhatsapp, onEditar, onExcluir, dataS
                       <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            onOpenObservationDropdown(aluno, aluno.originalIndex, e)
+                            onOpenObservationDropdown(aluno, e) // CORRIGIDO: Passa apenas 'aluno' e 'e' (o evento)
                           }}
                           className={`observation-button p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 w-full text-left ${observacaoAtualDisplay.length > 0 ? 'text-orange-500 dark:text-orange-400' : 'text-gray-900 dark:text-white'}`}
                           title="Adicionar/Editar Observação"
@@ -145,35 +154,35 @@ const Tabela = ({ registros, onAtualizar, onWhatsapp, onEditar, onExcluir, dataS
                     {/* ======================= ÁREA MODIFICADA 2: ADICIONADO BOTÃO DE RECOMPOSIÇÃO ======================= */}
                     <div className="flex flex-nowrap gap-2" onClick={(e) => e.stopPropagation()}>
                       <button
-                        onClick={() => onAbrirModalRecomposicao(aluno)}
+                        onClick={() => onAbrirModalRecomposicao(aluno)} // CORRIGIDO: Passa o objeto aluno completo
                         className="px-3 py-1 rounded-lg bg-orange-500 text-white text-xs hover:bg-orange-600 transition-colors duration-200 shadow-sm"
                         title="Recompor Faltas (Limpar Justificativas no Período)"
                       >
                         🔄 Recompor
                       </button>
                       <button
-                        onClick={() => onAbrirRelatorio(aluno)}
+                        onClick={() => onAbrirRelatorio(aluno)} // CORRIGIDO: Passa o objeto aluno completo
                         className="px-3 py-1 rounded-lg bg-cyan-600 text-white text-xs hover:bg-cyan-700 transition-colors duration-200 shadow-sm"
                         title="Gerar Relatório Completo"
                       >
                         📄 Relatório
                       </button>
                       <button
-                        onClick={() => onWhatsapp(aluno)}
+                        onClick={() => onWhatsapp(aluno)} // CORRIGIDO: Passa o objeto aluno completo
                         className="px-3 py-1 rounded-lg bg-green-500 text-white text-xs hover:bg-green-600 transition-colors duration-200 shadow-sm"
                         title="Enviar WhatsApp"
                       >
                         📲 WhatsApp
                       </button>
                       <button
-                        onClick={() => onEditar(aluno.originalIndex)}
+                        onClick={() => onEditar(aluno)} // CORRIGIDO: Passa o objeto aluno completo
                         className="px-3 py-1 rounded-lg bg-yellow-500 text-white text-xs hover:bg-yellow-600 transition-colors duration-200 shadow-sm"
                         title="Editar Aluno"
                       >
                         ✏️ Editar
                       </button>
                       <button
-                        onClick={() => onExcluir(aluno.originalIndex)}
+                        onClick={() => onExcluir(aluno)} // CORRIGIDO: Passa o objeto aluno completo
                         className="px-3 py-1 rounded-lg bg-red-500 text-white text-xs hover:bg-red-600 transition-colors duration-200 shadow-sm"
                         title="Excluir Aluno"
                       >
@@ -190,6 +199,22 @@ const Tabela = ({ registros, onAtualizar, onWhatsapp, onEditar, onExcluir, dataS
       </table>
     </div>
   );
+};
+
+// Função auxiliar para determinar o motivo final da justificativa (movida para fora do render)
+const motivoFinal = (justificativaSelecionada, aluno, chave) => {
+  let motivo = justificativaSelecionada;
+  if (justificativaSelecionada === "Outros") {
+    const textoOutros = prompt("Por favor, digite a justificativa:");
+    if (textoOutros !== null && textoOutros.trim() !== "") {
+      motivo = `Outros: ${textoOutros.trim()}`;
+    } else {
+      motivo = aluno.justificativas?.[chave] || "Selecione"; // Mantém o valor anterior se "Outros" for cancelado
+    }
+  } else if (justificativaSelecionada === "Selecione") {
+    motivo = "";
+  }
+  return motivo;
 };
 
 export default Tabela;
