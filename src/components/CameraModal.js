@@ -13,16 +13,13 @@ const CameraModal = ({ aluno, onClose, onUploadSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [facingMode, setFacingMode] = useState('environment');
 
-  // CORREÇÃO: A lógica de iniciar e parar a câmera foi movida para dentro do useEffect
-  // para controlar o ciclo de vida corretamente e evitar o loop infinito.
   useEffect(() => {
-    // Não faz nada se a foto já foi tirada
     if (fotoTiradaUrl) {
       return;
     }
 
-    let streamLocal = null; // Variável para manter o stream atual do efeito
-    let isCancelled = false; // Flag para evitar atualizações após o componente ser desmontado
+    let streamLocal = null;
+    let isCancelled = false;
 
     const startCamera = async () => {
       try {
@@ -54,7 +51,7 @@ const CameraModal = ({ aluno, onClose, onUploadSuccess }) => {
           errorMessage = "A câmera está em uso por outro aplicativo.";
         } else if (facingMode === 'environment') {
           console.log("Falha ao abrir câmera traseira, tentando a frontal...");
-          setFacingMode('user'); // Tenta a frontal como fallback
+          setFacingMode('user');
           return;
         }
         
@@ -65,14 +62,12 @@ const CameraModal = ({ aluno, onClose, onUploadSuccess }) => {
 
     startCamera();
 
-    // Função de limpeza: para o stream quando o componente desmonta ou as dependências mudam
     return () => {
       isCancelled = true;
       if (streamLocal) {
         streamLocal.getTracks().forEach(track => track.stop());
       }
     };
-    // O efeito agora depende apenas do facingMode e do estado da foto.
   }, [facingMode, fotoTiradaUrl, onClose]);
 
   const stopCurrentStream = useCallback(() => {
@@ -88,25 +83,36 @@ const CameraModal = ({ aluno, onClose, onUploadSuccess }) => {
 
   const tirarFoto = () => {
     if (videoRef.current && canvasRef.current) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      
-      const videoWidth = video.videoWidth;
-      const videoHeight = video.videoHeight;
-      
-      const targetHeight = Math.min(videoHeight, videoWidth * (4 / 3)); 
-      const targetWidth = targetHeight * (3 / 4);
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
 
-      const xOffset = (videoWidth - targetWidth) / 2;
-      const yOffset = (videoHeight - targetHeight) / 2;
+        const videoWidth = video.videoWidth;
+        const videoHeight = video.videoHeight;
 
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
-      const context = canvas.getContext('2d');
-      context.drawImage(video, xOffset, yOffset, targetWidth, targetHeight, 0, 0, targetWidth, targetHeight);
-      
-      setFotoTiradaUrl(canvas.toDataURL('image/jpeg'));
-      stopCurrentStream(); // Para o stream atual ao tirar a foto
+        // MODIFICADO: Define uma proporção retangular (4:3 paisagem) e centraliza o corte
+        const aspectRatio = 4 / 3;
+        let targetWidth = videoWidth;
+        let targetHeight = videoWidth / aspectRatio;
+
+        // Ajusta a altura se ela exceder a altura do vídeo, mantendo a proporção
+        if (targetHeight > videoHeight) {
+            targetHeight = videoHeight;
+            targetWidth = videoHeight * aspectRatio;
+        }
+
+        // Calcula o ponto inicial (offset) para centralizar o corte
+        const xOffset = (videoWidth - targetWidth) / 2;
+        const yOffset = (videoHeight - targetHeight) / 2;
+
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const context = canvas.getContext('2d');
+        
+        // Desenha a imagem do vídeo no canvas usando as dimensões de corte
+        context.drawImage(video, xOffset, yOffset, targetWidth, targetHeight, 0, 0, targetWidth, targetHeight);
+
+        setFotoTiradaUrl(canvas.toDataURL('image/jpeg'));
+        stopCurrentStream();
     }
   };
 
@@ -134,13 +140,11 @@ const CameraModal = ({ aluno, onClose, onUploadSuccess }) => {
     }, 'image/jpeg');
   };
   
-  // Função para fechar o modal, garantindo que a câmera pare.
   const handleClose = () => {
       stopCurrentStream();
       onClose();
   }
 
-  // Função para o botão "Tirar Outra", que reseta o estado da foto.
   const handleRetake = () => {
     setFotoTiradaUrl(null);
   }
@@ -151,7 +155,7 @@ const CameraModal = ({ aluno, onClose, onUploadSuccess }) => {
         <h2 className="text-xl font-bold mb-3 text-center">Foto de {aluno.nome}</h2>
         <div className="relative w-full h-64 bg-black rounded overflow-hidden mb-3">
           <div className="absolute top-0 left-0 w-full h-full">
-            {fotoTiradaUrl ? <img src={fotoTiradaUrl} alt="Pré-visualização" className="w-full h-full object-cover" /> : <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />}
+            {fotoTiradaUrl ? <img src={fotoTiradaUrl} alt="Pré-visualização" className="w-full h-full object-contain" /> : <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />}
           </div>
         </div>
         <canvas ref={canvasRef} style={{ display: 'none' }} />
