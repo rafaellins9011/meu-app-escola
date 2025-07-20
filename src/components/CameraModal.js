@@ -89,18 +89,15 @@ const CameraModal = ({ aluno, onClose, onUploadSuccess }) => {
         const videoWidth = video.videoWidth;
         const videoHeight = video.videoHeight;
 
-        // MODIFICADO: Define uma proporção retangular (4:3 paisagem) e centraliza o corte
         const aspectRatio = 4 / 3;
         let targetWidth = videoWidth;
         let targetHeight = videoWidth / aspectRatio;
 
-        // Ajusta a altura se ela exceder a altura do vídeo, mantendo a proporção
         if (targetHeight > videoHeight) {
             targetHeight = videoHeight;
             targetWidth = videoHeight * aspectRatio;
         }
 
-        // Calcula o ponto inicial (offset) para centralizar o corte
         const xOffset = (videoWidth - targetWidth) / 2;
         const yOffset = (videoHeight - targetHeight) / 2;
 
@@ -108,7 +105,6 @@ const CameraModal = ({ aluno, onClose, onUploadSuccess }) => {
         canvas.height = targetHeight;
         const context = canvas.getContext('2d');
         
-        // Desenha a imagem do vídeo no canvas usando as dimensões de corte
         context.drawImage(video, xOffset, yOffset, targetWidth, targetHeight, 0, 0, targetWidth, targetHeight);
 
         setFotoTiradaUrl(canvas.toDataURL('image/jpeg'));
@@ -153,9 +149,14 @@ const CameraModal = ({ aluno, onClose, onUploadSuccess }) => {
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
       <div className="bg-white p-4 rounded-lg text-black max-w-sm w-full max-h-[90vh] overflow-y-auto"> 
         <h2 className="text-xl font-bold mb-3 text-center">Foto de {aluno.nome}</h2>
-        <div className="relative w-full h-64 bg-black rounded overflow-hidden mb-3">
+        {/* MODIFICAÇÃO: Adicionado style={{ borderRadius: 0 }} para forçar o formato retangular e remover a máscara circular */}
+        <div className="relative w-full h-64 bg-black rounded overflow-hidden mb-3" style={{ borderRadius: 0 }}>
           <div className="absolute top-0 left-0 w-full h-full">
-            {fotoTiradaUrl ? <img src={fotoTiradaUrl} alt="Pré-visualização" className="w-full h-full object-contain" /> : <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />}
+            {fotoTiradaUrl ? 
+                <img src={fotoTiradaUrl} alt="Pré-visualização" className="w-full h-full object-contain" style={{ borderRadius: 0 }} /> 
+                : 
+                <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" style={{ borderRadius: 0 }} />
+            }
           </div>
         </div>
         <canvas ref={canvasRef} style={{ display: 'none' }} />
