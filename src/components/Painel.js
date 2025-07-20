@@ -1,5 +1,6 @@
 // Arquivo: src/components/Painel.js
-// CORREÇÃO: Ajustado o período padrão dos gráficos para os últimos 30 dias para evitar sobrecarga e a "tela branca".
+// CORREÇÃO DEFINITIVA: Implementado carregamento assíncrono para o Gráfico Semanal,
+// com uma mensagem de "Carregando...", para evitar a "tela branca" em períodos longos.
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { turmasDisponiveis, monitoresDisponiveis, gestoresDisponiveis } from '../dados'; 
@@ -28,7 +29,6 @@ const getTodayDateString = () => {
   return `${year}-${month}-${day}`;
 };
 
-// NOVO: Função para obter uma data no passado, para definir um período padrão mais curto.
 const getPastDateString = (daysAgo) => {
     const date = new Date();
     date.setDate(date.getDate() - daysAgo);
@@ -52,9 +52,12 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
   const [editandoAluno, setEditandoAluno] = useState(null);
   const [novoAluno, setNovoAluno] = useState({ nome: '', turma: '', contato: '', responsavel: '', monitor: '' });
   
-  // CORREÇÃO: O período padrão agora é de 30 dias para evitar sobrecarga.
   const [dataInicio, setDataInicio] = useState(() => getPastDateString(30));
   const [dataFim, setDataFim] = useState(() => getTodayDateString());
+
+  // NOVO: Estados para controlar o carregamento e os dados do gráfico semanal
+  const [isGraficoSemanalLoading, setIsGraficoSemanalLoading] = useState(false);
+  const [dadosGraficoSemanal, setDadosGraficoSemanal] = useState(null);
 
   const [alunoParaCadastro, setAlunoParaCadastro] = useState({
     nome: '',
@@ -121,6 +124,69 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
     return () => unsubscribe();
   }, []);
 
+  // NOVO: useEffect para calcular os dados do gráfico semanal em segundo plano
+  useEffect(() => {
+    if (mostrarGraficoSemanal) {
+      setIsGraficoSemanalLoading(true);
+
+      // Usamos setTimeout para permitir que a UI atualize com a mensagem de "Carregando"
+      // antes de iniciar o cálculo pesado.
+      setTimeout(() => {
+        const inicio = new Date(dataInicio + 'T00:00:00');
+        const fim = new Date(dataFim + 'T23:59:59');
+
+        const faltasPorDia = {};
+        const atrasosPorDia = {};
+
+        // Inicializa os contadores para cada dia no período
+        for (let d = new Date(inicio); d <= fim; d.setDate(d.getDate() + 1)) {
+            const dataString = d.toISOString().split('T')[0];
+            faltasPorDia[dataString] = 0;
+            atrasosPorDia[dataString] = 0;
+        }
+
+        registros.forEach(aluno => {
+            // Conta faltas
+            if (aluno.justificativas) {
+                Object.keys(aluno.justificativas).forEach(chave => {
+                    const dataFalta = chave.split('_')[2];
+                    if (dataFalta >= dataInicio && dataFalta <= dataFim) {
+                        if (faltasPorDia[dataFalta] !== undefined) {
+                            faltasPorDia[dataFalta]++;
+                        }
+                    }
+                });
+            }
+            // Conta atrasos
+            if (aluno.observacoes) {
+                Object.entries(aluno.observacoes).forEach(([chave, obsArray]) => {
+                    const dataObs = chave.split('_')[2];
+                    if (dataObs >= dataInicio && dataObs <= dataFim) {
+                        if (Array.isArray(obsArray) && obsArray.includes("Chegou atrasado(a).")) {
+                           if (atrasosPorDia[dataObs] !== undefined) {
+                                atrasosPorDia[dataObs]++;
+                            }
+                        }
+                    }
+                });
+            }
+        });
+
+        const labels = Object.keys(faltasPorDia).map(data => formatarData(data));
+        const faltasData = Object.values(faltasPorDia);
+        const atrasosData = Object.values(atrasosPorDia);
+
+        setDadosGraficoSemanal({
+            labels,
+            faltasData,
+            atrasosData,
+        });
+        setIsGraficoSemanalLoading(false);
+      }, 50); // Um pequeno delay para garantir que o estado de loading seja renderizado
+    }
+  }, [mostrarGraficoSemanal, dataInicio, dataFim, registros]);
+
+
   const closeObservationDropdown = useCallback(() => { setIsObservationDropdownOpen(false); setCurrentAlunoForObservation(null); setTempSelectedObservations(new Set()); setOtherObservationText(''); setDropdownPosition({ top: 0, left: 0, width: 0, height: 0 }); }, []);
   useEffect(() => { const handleClickOutside = (event) => { if (dropdownRef.current && !dropdownRef.current.contains(event.target) && !event.target.closest('.observation-button')) { closeObservationDropdown(); } }; document.addEventListener("mousedown", handleClickOutside); return () => { document.removeEventListener("mousedown", handleClickOutside); }; }, [dropdownRef, closeObservationDropdown]);
   useEffect(() => { document.body.style.backgroundColor = temaEscuro ? '#121212' : '#ffffff'; document.body.style.color = temaEscuro ? '#ffffff' : '#000000'; localStorage.setItem('tema', temaEscuro ? 'escuro' : 'claro'); }, [temaEscuro]);
@@ -157,10 +223,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
       const alunoDocRef = doc(db, 'alunos', alunoId);
       const { id, ...dadosParaSalvar } = alunoAtualizado; 
       await setDoc(alunoDocRef, dadosParaSalvar, { merge: true });
-      setRegistros(prevRegistros => 
-        prevRegistros.map(aluno => aluno.id === alunoId ? { ...aluno, ...alunoAtualizado } : aluno)
-      );
-      console.log("Aluno atualizado no Firestore com sucesso:", alunoId);
+      // A atualização do estado local agora é feita pelo onSnapshot, não sendo mais necessária aqui.
     } catch (error) {
       console.error("Erro ao atualizar aluno no Firestore:", error);
       alert("Erro ao atualizar dados do aluno.");
@@ -254,7 +317,6 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
     try {
       const docRef = doc(collection(db, 'alunos'));
       await setDoc(docRef, novoRegistroData);
-      setRegistros(prev => [...prev, { id: docRef.id, ...novoRegistroData }]);
       setAlunoParaCadastro({ nome: '', turma: '', contato: '', responsavel: '', monitor: '', faltasAnteriores: 0 });
       alert('Aluno(a) cadastrado(a) com sucesso!');
     } catch (error) {
@@ -268,9 +330,6 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
       try {
         const alunoDocRef = doc(db, 'alunos', alunoParaExcluir.id);
         await updateDoc(alunoDocRef, { ativo: false });
-        setRegistros(prevRegistros => prevRegistros.map(aluno => 
-          aluno.id === alunoParaExcluir.id ? { ...aluno, ativo: false } : aluno
-        ));
         alert('Aluno(a) excluído(a) da exibição principal com sucesso! Dados históricos gerais preservados.'); 
       } catch (error) {
         console.error("Erro ao excluir aluno do Firestore:", error);
@@ -289,9 +348,6 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
       const alunoDocRef = doc(db, 'alunos', novoAluno.id);
       const { id, ...dadosParaSalvar } = novoAluno;
       await setDoc(alunoDocRef, dadosParaSalvar, { merge: true });
-      setRegistros(prevRegistros => 
-        prevRegistros.map(aluno => aluno.id === novoAluno.id ? { ...aluno, ...novoAluno } : aluno)
-      );
       setEditandoAluno(null);
       alert("Aluno atualizado com sucesso!");
     } catch (error) {
@@ -313,13 +369,6 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
           batchInstance.update(alunoDocRef, { justificativas: novasJustificativas });
         }
         await batchInstance.commit();
-        setRegistros(prevRegistros => prevRegistros.map(r => {
-          if (alunosParaAtualizar.some(a => a.id === r.id)) {
-            const chave = `${r.nome}_${normalizeTurmaChar(r.turma)}_${dataSelecionada}`;
-            return { ...r, justificativas: { ...r.justificativas, [chave]: motivo } };
-          }
-          return r;
-        }));
         alert("Faltas justificadas no Firestore com sucesso!");
       } catch (error) {
         console.error("Erro ao justificar todos no Firestore:", error);
@@ -342,7 +391,6 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
             batchInstance.update(alunoDocRef, { justificativas: {}, observacoes: {}, ativo: true, fotoUrl: '' });
           });
           await batchInstance.commit();
-          setRegistros(prev => prev.map(aluno => ({...aluno, justificativas: {}, observacoes: {}, ativo: true, fotoUrl: ''})));
           alert("Alertas reiniciados no Firestore com sucesso!"); 
         } catch (error) {
           console.error("Erro ao reiniciar alertas no Firestore:", error);
@@ -377,9 +425,6 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
     try {
       const alunoDocRef = doc(db, 'alunos', currentAlunoForObservation.id);
       await updateDoc(alunoDocRef, { observacoes: updatedObservations });
-      setRegistros(prevRegistros => prevRegistros.map(aluno => 
-        aluno.id === currentAlunoForObservation.id ? { ...aluno, observacoes: updatedObservations } : aluno
-      ));
       alert("Observações salvas no Firestore com sucesso!");
       closeObservationDropdown(); 
     } catch (error) {
@@ -732,16 +777,21 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
       )}
       {!loading && (
         <>
+            {/* MODIFICADO: Lógica de renderização do Gráfico Semanal */}
             {mostrarGraficoSemanal && (
               <div className="mt-8">
-                <GraficoSemanal 
-                    chartRef={graficoSemanalRef}
-                    registros={registros}
-                    dataInicio={dataInicio}
-                    dataFim={dataFim} 
-                />
+                {isGraficoSemanalLoading ? (
+                  <div className="text-center p-8">Calculando dados do gráfico...</div>
+                ) : (
+                  <GraficoSemanal 
+                      chartRef={graficoSemanalRef}
+                      // Passa os dados pré-calculados em vez da lista de registros inteira
+                      data={dadosGraficoSemanal}
+                  />
+                )}
               </div>
             )}
+
             {mostrarGraficoFaltas && (
               <div className="mt-8">
                 <GraficoFaltas 
