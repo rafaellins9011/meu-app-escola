@@ -12,6 +12,8 @@ const CameraModal = ({ aluno, onClose, onUploadSuccess }) => {
   const [fotoTiradaUrl, setFotoTiradaUrl] = useState(null);
   const [loading, setLoading] = useState(false);
   const [facingMode, setFacingMode] = useState('environment');
+  // <<< ALTERAÇÃO 1: Novo estado para controlar quando a câmera está pronta.
+  const [isCameraReady, setIsCameraReady] = useState(false); 
 
   useEffect(() => {
     if (fotoTiradaUrl) {
@@ -20,6 +22,9 @@ const CameraModal = ({ aluno, onClose, onUploadSuccess }) => {
 
     let streamLocal = null;
     let isCancelled = false;
+
+    // Resetar o estado de "pronto" sempre que a câmera iniciar
+    setIsCameraReady(false);
 
     const startCamera = async () => {
       try {
@@ -90,39 +95,28 @@ const CameraModal = ({ aluno, onClose, onUploadSuccess }) => {
         const videoWidth = video.videoWidth;
         const videoHeight = video.videoHeight;
 
-        // Definir a proporção de aspecto desejada para RETRATO (largura / altura)
-        // Ex: 3:4 significa que para cada 3 unidades de largura, há 4 de altura.
-        const desiredPortraitAspectRatio = 3 / 4; 
+        const desiredPortraitAspectRatio = 3 / 4; 
 
-        let sourceWidth, sourceHeight; // Dimensões da área a ser cortada do vídeo
-        let sourceX, sourceY; // Posição inicial do corte no vídeo
+        let sourceWidth, sourceHeight;
+        let sourceX, sourceY;
 
-        // Calcular a área máxima de retrato que cabe no feed de vídeo
-        // Tentamos usar a altura total do vídeo e ajustar a largura
         sourceHeight = videoHeight;
         sourceWidth = videoHeight * desiredPortraitAspectRatio;
 
-        // Se a largura calculada for maior que a largura do vídeo,
-        // significa que a largura do vídeo é o limitante.
         if (sourceWidth > videoWidth) {
           sourceWidth = videoWidth;
           sourceHeight = videoWidth / desiredPortraitAspectRatio;
         }
 
-        // Calcular offsets para centralizar o corte na área do vídeo
         sourceX = (videoWidth - sourceWidth) / 2;
         sourceY = (videoHeight - sourceHeight) / 2;
 
-        // Definir as dimensões do canvas de saída (resolução da foto final)
-        // Mantém a proporção 3:4 retrato.
-        // A resolução de 300x400 é um bom balanço entre qualidade e tamanho de arquivo.
-        const outputCanvasWidth = 300; 
-        const outputCanvasHeight = outputCanvasWidth / desiredPortraitAspectRatio; 
+        const outputCanvasWidth = 300; 
+        const outputCanvasHeight = outputCanvasWidth / desiredPortraitAspectRatio; 
 
         canvas.width = outputCanvasWidth;
         canvas.height = outputCanvasHeight;
 
-        // Desenha a imagem cortada do vídeo para preencher todo o canvas
         context.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height);
 
         setFotoTiradaUrl(canvas.toDataURL('image/jpeg'));
@@ -169,7 +163,18 @@ const CameraModal = ({ aluno, onClose, onUploadSuccess }) => {
         <h2 className="text-xl font-bold mb-3 text-center">Foto de {aluno.nome}</h2>
         <div className="relative w-full h-64 bg-black rounded overflow-hidden mb-3">
           <div className="absolute top-0 left-0 w-full h-full">
-            {fotoTiradaUrl ? <img src={fotoTiradaUrl} alt="Pré-visualização" className="w-full h-full object-contain" /> : <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />}
+            {fotoTiradaUrl ? (
+                <img src={fotoTiradaUrl} alt="Pré-visualização" className="w-full h-full object-contain" />
+            ) : (
+                <video 
+                    ref={videoRef} 
+                    autoPlay 
+                    playsInline 
+                    className="w-full h-full object-cover" 
+                    // <<< ALTERAÇÃO 2: Evento para saber quando o vídeo está pronto.
+                    onCanPlay={() => setIsCameraReady(true)} 
+                />
+            )}
           </div>
         </div>
         <canvas ref={canvasRef} style={{ display: 'none' }} />
@@ -185,7 +190,18 @@ const CameraModal = ({ aluno, onClose, onUploadSuccess }) => {
                 <button onClick={handleSwitchCamera} className="p-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300" title="Trocar Câmera">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/><path d="M13 5h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5"/><path d="m20 12-3-3-3 3"/><path d="m4 12 3 3 3-3"/></svg>
                 </button>
-                <button onClick={tirarFoto} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Capturar Foto</button> 
+                {/* <<< ALTERAÇÃO 3: Botão de captura atualizado. */}
+                <button 
+                    onClick={tirarFoto} 
+                    disabled={!isCameraReady}
+                    className={`px-4 py-2 text-white rounded-lg transition-colors ${
+                        isCameraReady 
+                        ? 'bg-blue-600 hover:bg-blue-700' 
+                        : 'bg-blue-300 cursor-not-allowed'
+                    }`}
+                >
+                    {isCameraReady ? 'Capturar Foto' : 'Aguarde...'}
+                </button> 
             </div>
           )}
         </div>
