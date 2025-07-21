@@ -11,6 +11,9 @@ import {
   Title,
   Tooltip,
   Legend,
+  // NOVIDADE CRÍTICA AQUI: Importando os controladores de gráfico
+  LineController,
+  BarController,
 } from 'chart.js';
 
 ChartJS.register(
@@ -21,7 +24,10 @@ ChartJS.register(
   PointElement,
   Title,
   Tooltip,
-  Legend
+  Legend,
+  // NOVIDADE CRÍTICA AQUI: Registrando os controladores de gráfico
+  LineController,
+  BarController
 );
 
 // Função para pegar a data de início da semana (domingo) no formato YYYY-MM-DD
