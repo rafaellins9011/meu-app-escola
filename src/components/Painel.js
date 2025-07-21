@@ -16,7 +16,6 @@
 // MODIFICAÇÃO DE UI: Botão 'Exportar Gráfico de Faltas' movido para dentro de GraficoFaltas.js.
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-// REMOVIDO/MODIFICADO FIRESTORE: 'alunos' não é mais importado do '../dados' para o estado principal
 import { turmasDisponiveis, monitoresDisponiveis, gestoresDisponiveis } from '../dados'; // Manter para dados estáticos
 import Tabela from './Tabela';
 import jsPDF from 'jspdf';
@@ -50,21 +49,20 @@ const normalizeTurmaChar = (turma) => {
 };
 
 const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
-  // REMOVIDO/MODIFICADO FIRESTORE: Inicialização de registros não mais do localStorage ou dados.js
   const [registros, setRegistros] = useState([]); // Começamos com array vazio, dados serão carregados do Firestore
 
   const [temaEscuro, setTemaEscuro] = useState(() => localStorage.getItem('tema') === 'escuro');
-  // NOVIDADE GRÁFICO: Estados separados para controle de visibilidade dos gráficos
   const [mostrarGraficoFaltas, setMostrarGraficoFaltas] = useState(false); // Controla GraficoFaltas
   const [mostrarGraficoSemanal, setMostrarGraficoSemanal] = useState(false); // Controla GraficoSemanal
 
   const [turmaSelecionada, setTurmaSelecionada] = useState('');
   const [dataSelecionada, setDataSelecionada] = useState(() => getTodayDateString());
   const [editandoAluno, setEditandoAluno] = useState(null);
-  // NOVIDADE FOTO: Removido fotoUrl daqui, pois o CameraModal gerencia o upload
   const [novoAluno, setNovoAluno] = useState({ nome: '', turma: '', contato: '', responsavel: '', monitor: '' });
-  const [dataInicio, setDataInicio] = useState('');
-  const [dataFim, setDataFim] = useState('');
+
+  const [dataInicio, setDataInicio] = useState('2025-07-20');
+  const [dataFim, setDataFim] = useState('2025-07-26');
+
   const [alunoParaCadastro, setAlunoParaCadastro] = useState({
     nome: '',
     turma: '',
@@ -72,16 +70,20 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
     responsavel: '',
     monitor: '',
     faltasAnteriores: 0,
-    // NOVIDADE FOTO: Removido fotoUrl daqui, pois o CameraModal gerencia o upload
   });
   const [mostrarFormularioCadastro, setMostrarFormularioCadastro] = useState(false);
   const schoolHeaderRef = useRef(null);
+
+  // ESTADOS DA OBSERVAÇÃO
   const [isObservationDropdownOpen, setIsObservationDropdownOpen] = useState(false);
   const [currentAlunoForObservation, setCurrentAlunoForObservation] = useState(null);
-  const [tempSelectedObservations, setTempSelectedObservations] = useState(new Set());
+  const [tempSelectedObservations, setTempSelectedObservations] = new Set(); // eslint-disable-line no-unused-vars
   const [otherObservationText, setOtherObservationText] = useState('');
-  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0, height: 0 });
-  const dropdownRef = useRef(null);
+  
+  // MODIFICAÇÃO AQUI: Estado para armazenar a posição do botão acionador do dropdown
+  const [buttonPosition, setButtonPosition] = useState({ top: 0, left: 0, width: 0, height: 0 });
+  const dropdownRef = useRef(null); // Ref para o div do dropdown de observações
+
   const opcoesObservacao = [
     "Chegou atrasado(a).",
     "Cabelo fora do padrão.",
@@ -129,11 +131,13 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
   const graficoFaltasRef = useRef(null);
   const graficoSemanalRef = useRef(null); // NOVIDADE EXPORTAÇÃO GRÁFICO: Ref para GraficoSemanal
 
+  // NOVIDADE EXPORTAÇÃO: Novo estado para controlar a exibição das opções de exportação de PDF
+  const [showExportOptions, setShowExportOptions] = useState(false);
+
+
   // NOVIDADE FIRESTORE: useEffect para OUVIR dados do Firestore em TEMPO REAL
   useEffect(() => {
     setLoading(true);
-    // A função onSnapshot cria um "ouvinte" que fica ativo.
-    // Qualquer alteração na coleção 'alunos' no Firestore irá executar o código abaixo novamente.
     const unsubscribe = onSnapshot(collection(db, 'alunos'), (querySnapshot) => {
         const alunosData = querySnapshot.docs.map(doc => ({
             id: doc.id,
@@ -148,20 +152,42 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
         alert("Erro de conexão em tempo real. Verifique a internet ou as regras do Firestore.");
         setLoading(false);
     });
-
-    // Esta é a função de "limpeza". Ela é executada quando o componente sai da tela,
-    // e serve para remover o "ouvinte", economizando recursos.
     return () => unsubscribe();
-}, []); // O array vazio [] garante que o "ouvinte" é configurado apenas uma vez.
+  }, []);
 
-  // REMOVIDO/MODIFICADO FIRESTORE: O useEffect para salvar no localStorage não é mais necessário
   useEffect(() => { /* Antigo: localStorage.setItem('registros', JSON.stringify(registros)); */ }, [registros]);
   
-  const closeObservationDropdown = useCallback(() => { setIsObservationDropdownOpen(false); setCurrentAlunoForObservation(null); setTempSelectedObservations(new Set()); setOtherObservationText(''); setDropdownPosition({ top: 0, left: 0, width: 0, height: 0 }); }, []);
-  useEffect(() => { const handleClickOutside = (event) => { if (dropdownRef.current && !dropdownRef.current.contains(event.target) && !event.target.closest('.observation-button')) { closeObservationDropdown(); } }; document.addEventListener("mousedown", handleClickOutside); return () => { document.removeEventListener("mousedown", handleClickOutside); }; }, [dropdownRef, closeObservationDropdown]);
+  const closeObservationDropdown = useCallback(() => { 
+    setIsObservationDropdownOpen(false); 
+    setCurrentAlunoForObservation(null); 
+    setTempSelectedObservations(new Set()); 
+    setOtherObservationText(''); 
+    setButtonPosition({ top: 0, left: 0, width: 0, height: 0 }); // Resetar posição
+  }, []);
+
+  // Modificado para usar buttonPosition em vez de dropdownPosition
+  useEffect(() => { 
+    const handleClickOutside = (event) => { 
+        if (dropdownRef.current && !dropdownRef.current.contains(event.target) && !event.target.closest('.observation-button')) { 
+            closeObservationDropdown(); 
+        } 
+    }; 
+    document.addEventListener("mousedown", handleClickOutside); 
+    return () => { document.removeEventListener("mousedown", handleClickOutside); }; 
+  }, [dropdownRef, closeObservationDropdown]);
+
   useEffect(() => { document.body.style.backgroundColor = temaEscuro ? '#121212' : '#ffffff'; document.body.style.color = temaEscuro ? '#ffffff' : '#000000'; localStorage.setItem('tema', temaEscuro ? 'escuro' : 'claro'); }, [temaEscuro]);
   const turmasPermitidas = useCallback(() => { let allowedTurmas = []; const usuarioLogadoNormalizado = normalizeTurmaChar(usuarioLogado); if (tipoUsuario === 'gestor') { allowedTurmas = turmasDisponiveis.map(t => normalizeTurmaChar(t.name)); } else { const monitor = monitoresDisponiveis.find(m => normalizeTurmaChar(m.name) === usuarioLogadoNormalizado); if (monitor) { allowedTurmas = monitor.turmas.map(t => normalizeTurmaChar(t)); } } return allowedTurmas; }, [usuarioLogado, tipoUsuario]);
-  useEffect(() => { const classes = turmasPermitidas(); if (classes.length > 0 && !turmaSelecionada) { setTurmaSelecionada(classes[0]); } }, [turmasPermitidas, turmaSelecionada]);
+  
+  // <<< ALTERAÇÃO 1: O bloco que selecionava a primeira turma automaticamente foi REMOVIDO daqui.
+  /*
+  useEffect(() => { 
+    const classes = turmasPermitidas(); 
+    if (classes.length > 0 && !turmaSelecionada) { 
+        setTurmaSelecionada(classes[0]); 
+    } 
+  }, [turmasPermitidas, turmaSelecionada]);
+  */
 
   // NOVIDADE FOTO: Efeito para fechar o visualizador de fotos ao clicar fora
   useEffect(() => {
@@ -175,8 +201,13 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
     return () => document.removeEventListener("mousedown", handleClickOutsidePhotoViewer);
   }, [photoViewerRef]);
   
+  // <<< ALTERAÇÃO 2: A lógica de filtragem foi atualizada.
   // Dados filtrados para a TABELA e para GraficoFaltas/outros relatórios (APENAS ALUNOS ATIVOS)
   const registrosFiltradosParaTabelaEOutros = useMemo(() => {
+    // Se nenhuma turma estiver selecionada, retorna uma lista vazia.
+    if (!turmaSelecionada) {
+        return [];
+    }
     return registros
       .filter(a => { 
         // Apenas alunos ATIVOS são exibidos na tabela principal e em outros gráficos/relatórios
@@ -186,13 +217,15 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
         const turmaAlunoNormalizada = normalizeTurmaChar(a.turma);
         const pertence = turmasDoUsuario.includes(turmaAlunoNormalizada);
         const turmaSelecionadaNormalizada = normalizeTurmaChar(turmaSelecionada);
+        // A condição original 'turmaSelecionada === ''' foi mantida para outros casos de uso, mas o if acima já trata a exibição inicial.
         const turmaOk = turmaSelecionada === '' || turmaAlunoNormalizada === turmaSelecionadaNormalizada;
 
         const buscaTabelaOk = a.nome.toLowerCase().includes(termoBuscaTabela.toLowerCase());
 
         return pertence && turmaOk && buscaTabelaOk;
-      });
-  }, [registros, turmaSelecionada, termoBuscaTabela, turmasPermitidas]); // Adicionado useMemo para otimização
+      })
+      .sort((a, b) => a.nome.localeCompare(b.nome)); 
+  }, [registros, turmaSelecionada, termoBuscaTabela, turmasPermitidas]);
 
   // NOVIDADE FIRESTORE: A função atualizarAlunoRegistro agora interage com o Firestore
   const atualizarAlunoRegistro = useCallback(async (alunoId, alunoAtualizado) => {
@@ -202,10 +235,10 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
       const { id, ...dadosParaSalvar } = alunoAtualizado; 
       await setDoc(alunoDocRef, dadosParaSalvar, { merge: true }); // merge: true para atualizar campos existentes
       
-      // Atualiza o estado local após o sucesso no Firestore
-      setRegistros(prevRegistros => 
-        prevRegistros.map(aluno => aluno.id === alunoId ? { ...aluno, ...alunoAtualizado } : aluno)
-      );
+      // A atualização do estado local é feita automaticamente pelo onSnapshot listener
+      // setRegistros(prevRegistros => 
+      //   prevRegistros.map(aluno => aluno.id === alunoId ? { ...aluno, ...alunoAtualizado } : aluno)
+      // );
       console.log("Aluno atualizado no Firestore com sucesso:", alunoId);
     } catch (error) {
       console.error("Erro ao atualizar aluno no Firestore:", error);
@@ -269,7 +302,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
         if (aluno.observacoes) {
             Object.entries(aluno.observacoes).forEach(([chave, obsArray]) => {
                 const dataObs = chave.split('_')[2];
-                if (dataObs && dataObs >= inicio && dataObs <= fim) {
+                if (dataObs && dataObs >= inicio && dataObs <= fim) { // Corrected: dataObs >= fim should be dataObs <= fim
                     if (Array.isArray(obsArray) && obsArray.includes("Chegou atrasado(a).")) {
                         contadorAtrasos++;
                     }
@@ -346,9 +379,9 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
   const salvarEdicao = useCallback(async () => { 
     // Garante que estamos editando um aluno existente com ID
     if (!editandoAluno || !novoAluno.id) { // Agora editandoAluno é o ID do aluno
-        console.error("Erro: Aluno em edição ou ID ausente.");
-        alert("Erro: Não foi possível salvar a edição. Aluno ou ID ausente.");
-        return;
+      console.error("Erro: Aluno em edição ou ID ausente.");
+      alert("Erro: Não foi possível salvar a edição. Aluno ou ID ausente.");
+      return;
     }
     try {
       const alunoDocRef = doc(db, 'alunos', novoAluno.id);
@@ -472,9 +505,10 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
 
   const enviarWhatsapp = useCallback((aluno) => { const [ano, mes, dia] = dataSelecionada.split('-').map(Number); const dataObj = new Date(ano, mes - 1, dia); const diasSemana = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado']; const diaSemana = dataObj.getDay(); const dataFormatada = formatarData(dataSelecionada); const texto = `Olá, ${aluno.responsavel}, informamos que ${aluno.nome} (${normalizeTurmaChar(aluno.turma)}) esteve ausente na escola em ${dataFormatada} (${diasSemana[diaSemana]}). Por favor, justificar a ausência.\n\nLembramos que faltas não justificadas podem resultar em notificações formais, conforme as diretrizes educacionais.\n\nAguardamos seu retorno.\n\nAtenciosamente,\nMonitor(a) ${usuarioLogado}\nEscola Cívico-Militar Profª Ana Maria das Graças de Souza Noronha`; const link = `https://wa.me/55${aluno.contato.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(texto)}`; window.open(link, '_blank'); }, [dataSelecionada, usuarioLogado]);
   
-  // CORREÇÃO DE SINTAXE E AGORA COMPLETA: exportarPeriodo
-  const exportarPeriodo = useCallback(() => { 
+  // MODIFICADO: exportarPeriodo agora aceita um flag para exportar todas as turmas
+  const exportarPeriodo = useCallback((exportAllClasses = false) => { 
     if (!dataInicio || !dataFim) return alert('Selecione o período completo!'); 
+    
     const doc = new jsPDF(); 
     const pageWidth = doc.internal.pageSize.getWidth(); 
     const schoolName = `ESCOLA ESTADUAL CÍVICO-MILITAR PROFESSORA ANA MARIA DAS GRAÇAS DE SOUZA NORONHA`; 
@@ -483,45 +517,88 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
 
     const addContentToDoc = () => { 
       doc.setFontSize(10); 
-      const reportTitle = `Relatório por Período (${formatarData(dataInicio)} a ${formatarData(dataFim)}) - ${tipoUsuario} ${usuarioLogado}`; 
+      let reportTitle = `Relatório por Período (${formatarData(dataInicio)} a ${formatarData(dataFim)}) - ${tipoUsuario} ${usuarioLogado}`;
+      if (exportAllClasses) {
+        reportTitle += ' - TODAS AS TURMAS';
+      } else {
+        reportTitle += ` - Turma: ${turmaSelecionada}`;
+      }
       doc.text(reportTitle, pageWidth / 2, yOffset, { align: 'center' }); 
       yOffset += 10; 
-      const periodo = []; 
       
-      registros.filter(a => a.ativo).forEach((aluno) => { 
+      // NOVIDADE AQUI: Coletar e classificar as entradas antes de gerar a tabela
+      const allPeriodEntries = []; // Array para armazenar as entradas com dados para classificação
+      
+      // Define os registros a serem usados: todos se exportAllClasses for true, senão os filtrados
+      const registrosParaExportar = exportAllClasses ? registros : registrosFiltradosParaTabelaEOutros;
+
+      registrosParaExportar.filter(a => a.ativo).forEach((aluno) => { 
         if (!aluno.justificativas) return; 
 
         Object.entries(aluno.justificativas).forEach(([chave, justificativa]) => { 
           const partes = chave.split('_'); 
-          const data = partes[2]; 
-          const turmasDoUsuario = turmasPermitidas(); 
+          const data = partes[2]; // Formato YYYY-MM-DD para fácil comparação
           const turmaAlunoNormalizada = normalizeTurmaChar(aluno.turma); 
 
-          if (data >= dataInicio && data <= dataFim && turmasDoUsuario.includes(turmaAlunoNormalizada)) { 
-            // <--- ESTA É A LINHA PRINCIPAL
-            // O último item da lista, `aluno.monitor || ''`, é o que preenche a coluna "Monitor(a)".
-            periodo.push([
-              aluno.nome, 
-              turmaAlunoNormalizada, 
-              aluno.contato || '', 
-              aluno.responsavel || '', 
-              justificativa, 
-              formatarData(data), 
-              aluno.monitor || '' // Garante que o nome do monitor seja adicionado.
-            ]); 
+          // Se for para exportar todas as turmas, verifica se o monitor logado tem permissão para ver essa turma
+          // Senão, filtra pela turma selecionada (que já respeita a permissão do monitor)
+          const turmasDoUsuario = turmasPermitidas(); // Pega as turmas que o usuário logado pode ver
+          const shouldIncludeAluno = exportAllClasses 
+                                     ? turmasDoUsuario.includes(turmaAlunoNormalizada) 
+                                     : (turmaAlunoNormalizada === normalizeTurmaChar(turmaSelecionada));
+          
+          if (data >= dataInicio && data <= dataFim && shouldIncludeAluno) { 
+            allPeriodEntries.push({
+              nome: aluno.nome, 
+              turma: turmaAlunoNormalizada, 
+              contato: aluno.contato || '', 
+              responsavel: aluno.responsavel || '', 
+              justificativa: justificativa, 
+              data: data, // Usamos a data no formato YYYY-MM-DD para classificação
+              monitor: aluno.monitor || '' 
+            }); 
           } 
         }); 
       }); 
 
+      // NOVIDADE AQUI: Classificar as entradas
+      allPeriodEntries.sort((a, b) => {
+        // 1. Classificar por Data (crescente)
+        if (a.data < b.data) return -1;
+        if (a.data > b.data) return 1;
+
+        // 2. Se as datas forem iguais, classificar por Turma (alfabética)
+        if (a.turma < b.turma) return -1;
+        if (a.turma > b.turma) return 1;
+
+        // Se data e turma forem iguais, mantém a ordem original (ou pode adicionar outro critério)
+        return 0;
+      });
+
+      // Mapear as entradas classificadas para o formato esperado pelo jspdf-autotable
+      const periodoFormattedForTable = allPeriodEntries.map(entry => [
+        entry.nome,
+        entry.turma,
+        entry.contato,
+        entry.responsavel,
+        entry.justificativa,
+        formatarData(entry.data), // Formata a data para exibição no PDF
+        entry.monitor
+      ]);
+
       autoTable(doc, { 
         startY: yOffset, 
         head: [['Nome', 'Turma', 'Contato', 'Responsável', 'Justificativa', 'Data', 'Monitor(a)']], 
-        body: periodo, 
+        body: periodoFormattedForTable, // Usamos o array classificado e formatado
         styles: { fontSize: 8, halign: 'center' }, 
         headStyles: { fillColor: [37, 99, 235], halign: 'center' }, 
       }); 
 
-      doc.save(`faltas_${dataInicio}_a_${dataFim}.pdf`); 
+      const fileName = exportAllClasses 
+                         ? `faltas_todas_turmas_${dataInicio}_a_${dataFim}.pdf` 
+                         : `faltas_turma_${normalizeTurmaChar(turmaSelecionada)}_${dataInicio}_a_${dataFim}.pdf`; // Nome do arquivo para turma selecionada
+      doc.save(fileName); 
+      setShowExportOptions(false); // Esconde as opções após a exportação
     }; 
 
     const img = new Image(); 
@@ -547,7 +624,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
       yOffset += 15; 
       addContentToDoc(); 
     }; 
-  }, [dataInicio, dataFim, usuarioLogado, tipoUsuario, registros, turmasPermitidas]); 
+  }, [dataInicio, dataFim, usuarioLogado, tipoUsuario, registros, turmasPermitidas, registrosFiltradosParaTabelaEOutros, turmaSelecionada]); 
 
   // REMOVIDO: exportGraficoFaltasPDF foi movido para GraficoFaltas.js
   /*
@@ -704,15 +781,53 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
   const handleOpenObservationDropdown = useCallback((aluno, event) => { // Removido o 'index'
     if (isObservationDropdownOpen && currentAlunoForObservation && currentAlunoForObservation.id === aluno.id) { closeObservationDropdown(); return; } 
     const rect = event.currentTarget.getBoundingClientRect(); 
-    setDropdownPosition({ top: rect.top + window.scrollY, left: rect.left + window.scrollX, width: rect.width, height: rect.height }); 
-    setCurrentAlunoForObservation(aluno); 
-    setIsObservationDropdownOpen(true); 
+    // Captura a posição do botão clicado
+    setButtonPosition({ 
+        top: rect.top + window.scrollY, 
+        left: rect.left + window.scrollX, 
+        width: rect.width, 
+        height: rect.height 
+    });
+    
+    setCurrentAlunoForObservation(aluno);
+    setIsObservationDropdownOpen(true); // Abre o dropdown
+    
     const chaveObservacao = `${aluno.nome}_${normalizeTurmaChar(aluno.turma)}_${dataSelecionada}`; 
     const existingObservations = aluno.observacoes?.[chaveObservacao] || []; 
     const existingObservationsArray = Array.isArray(existingObservations) ? existingObservations : (existingObservations ? [existingObservations] : []); 
-    const initialSet = new Set(); let initialOtherText = ''; existingObservationsArray.forEach(obs => { if (obs.startsWith("Outros: ")) { initialOtherText = obs.replace("Outros: ", ""); initialSet.add("Outros"); } else { initialSet.add(obs); } }); setTempSelectedObservations(initialSet); setOtherObservationText(initialOtherText); 
+    
+    const initialSet = new Set(); 
+    let initialOtherText = ''; 
+    
+    existingObservationsArray.forEach(obs => { 
+        if (obs.startsWith("Outros: ")) { 
+            initialOtherText = obs.replace("Outros: ", ""); 
+            initialSet.add("Outros"); 
+        } else { 
+            initialSet.add(obs); 
+        } 
+    }); 
+    setTempSelectedObservations(initialSet); 
+    setOtherObservationText(initialOtherText); 
   }, [isObservationDropdownOpen, currentAlunoForObservation, dataSelecionada, closeObservationDropdown]);
   
+  // NOVO useEffect para calcular a posição do dropdown APÓS ele ser renderizado
+  useEffect(() => {
+    if (isObservationDropdownOpen && dropdownRef.current) {
+      const dropdownHeight = dropdownRef.current.offsetHeight;
+      const topPosition = buttonPosition.top - dropdownHeight - 5; // Posição do botão - altura do dropdown - offset
+      const finalTop = Math.max(topPosition, 5); // Garante que não saia do topo da tela
+
+      // Atualiza a posição do botão para a posição final do dropdown
+      // (Isso fará com que o dropdown seja renderizado na posição correta na próxima atualização do estado)
+      setButtonPosition(prev => ({ 
+          ...prev, 
+          top: finalTop, 
+          left: prev.left // Mantém o left original do botão
+      }));
+    }
+  }, [isObservationDropdownOpen, buttonPosition.top, dropdownRef]); // Depende de isObservationDropdownOpen e do ref
+
   const handleCheckboxChange = useCallback((option) => { setTempSelectedObservations(prev => { const newSet = new Set(prev); if (newSet.has(option)) { newSet.delete(option); } else { newSet.add(option); } return newSet; }); if (option === "Outros" && tempSelectedObservations.has("Outros")) { setOtherObservationText(''); } }, [tempSelectedObservations]);
   const handleOtherTextChange = useCallback((e) => { const text = e.target.value; setOtherObservationText(text); if (text.trim() !== '' && !tempSelectedObservations.has("Outros")) { setTempSelectedObservations(prev => new Set(prev).add("Outros")); } else if (text.trim() === '' && tempSelectedObservations.has("Outros")) { const newSet = new Set(tempSelectedObservations); newSet.delete("Outros"); setTempSelectedObservations(newSet); } }, [tempSelectedObservations]);
   const calculateCompleteReport = useCallback((aluno) => { if (!aluno) return null; const today = getTodayDateString(); const startDate = REPORT_START_DATE; const start = new Date(startDate); const end = new Date(today); let actualDaysInPeriod = 0; for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) { const dayOfWeek = d.getDay(); if (dayOfWeek !== 0 && dayOfWeek !== 6) { actualDaysInPeriod++; } } if (actualDaysInPeriod === 0) actualDaysInPeriod = 1; let faltasAluno = 0; const alunoJustificativas = aluno.justificativas || {}; const justificativasNoPeriodo = []; Object.entries(alunoJustificativas).forEach(([chave, justificativa]) => { const partes = chave.split('_'); const data = partes[2]; if (data >= startDate && data <= today && justificativa && justificativa !== "Selecione") { faltasAluno++; justificativasNoPeriodo.push({ data: formatarData(data), justificativa: justificativa.startsWith("Outros: ") ? justificativa.substring(8) : justificativa, }); } }); const totalDiasLetivos = aluno.totalDiasLetivos || 100; const porcentagemAluno = ((faltasAluno / totalDiasLetivos) * 100).toFixed(2); let faltasTurma = 0; let totalAlunosNaTurma = new Set(); 
@@ -749,7 +864,41 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
   }; 
   const img = new Image(); img.src = logoUrl; img.crossOrigin = "Anonymous"; img.onload = () => { const logoWidth = 20; const logoHeight = (img.height * logoWidth) / img.width; const xLogo = (pageWidth - logoWidth) / 2; doc.addImage(img, 'PNG', xLogo, yOffset, logoWidth, logoHeight); yOffset += logoHeight + 5; doc.setFontSize(9); doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' }); yOffset += 10; addContentToDoc(); }; img.onerror = () => { console.error("Erro ao carregar a logo. Gerando PDF sem a imagem."); doc.setFontSize(12); doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' }); yOffset += 15; addContentToDoc(); }; }, [completeReportData]);
   const handleAbrirModalRecomposicao = useCallback((aluno) => { setAlunoParaRecompor(aluno); setIsRecomporModalOpen(true); setRecomporDataInicio(''); setRecomporDataFim(''); }, []);
-  const handleConfirmarRecomposicao = useCallback(() => { if (!alunoParaRecompor || !recomporDataInicio || !recomporDataFim) { alert("Por favor, selecione o período completo para a recomposição."); return; } if (window.confirm(`Tem certeza que deseja limpar as justificativas de ${alunoParaRecompor.nome} no período de ${formatarData(recomporDataInicio)} a ${formatarData(recomporDataFim)}?`)) { setRegistros(prevRegistros => { const novosRegistros = [...prevRegistros]; const alunoIndex = alunoParaRecompor.originalIndex; const aluno = novosRegistros[alunoIndex]; if (!aluno || !aluno.justificativas) { return prevRegistros; } const novasJustificativas = { ...aluno.justificativas }; Object.keys(novasJustificativas).forEach(chave => { const dataDaFalta = chave.split('_')[2]; if (dataDaFalta >= recomporDataInicio && dataDaFalta <= recomporDataFim) { delete novasJustificativas[chave]; } }); novosRegistros[alunoIndex] = { ...aluno, justificativas: novasJustificativas, }; alert("Justificativas do período foram limpas com sucesso!"); return novosRegistros; }); setIsRecomporModalOpen(false); setAlunoParaRecompor(null); } }, [alunoParaRecompor, recomporDataInicio, recomporDataFim]);
+  const handleConfirmarRecomposicao = useCallback(async () => { // Adicionado async
+    if (!alunoParaRecompor || !recomporDataInicio || !recomporDataFim) {
+        alert("Por favor, selecione o período completo para a recomposição.");
+        return;
+    }
+    if (window.confirm(`Tem certeza que deseja limpar as justificativas de ${alunoParaRecompor.nome} no período de ${formatarData(recomporDataInicio)} a ${formatarData(recomporDataFim)}?`)) {
+        try {
+            const alunoDocRef = doc(db, 'alunos', alunoParaRecompor.id);
+            const alunoSnapshot = await getDoc(alunoDocRef); // Obter os dados atuais do aluno
+            if (!alunoSnapshot.exists()) {
+                console.error("Aluno não encontrado para recomposição.");
+                alert("Erro: Aluno não encontrado.");
+                return;
+            }
+            const currentJustificativas = alunoSnapshot.data().justificativas || {};
+            const novasJustificativas = { ...currentJustificativas };
+
+            Object.keys(novasJustificativas).forEach(chave => {
+                const dataDaFalta = chave.split('_')[2];
+                if (dataDaFalta >= recomporDataInicio && dataDaFalta <= recomporDataFim) {
+                    delete novasJustificativas[chave];
+                }
+            });
+
+            await updateDoc(alunoDocRef, { justificativas: novasJustificativas });
+            alert("Justificativas do período foram limpas no Firestore com sucesso!");
+            // A atualização do estado 'registros' será feita automaticamente pelo onSnapshot listener
+            setIsRecomporModalOpen(false);
+            setAlunoParaRecompor(null);
+        } catch (error) {
+            console.error("Erro ao recompor faltas no Firestore:", error);
+            alert("Erro ao recompor faltas.");
+        }
+    }
+  }, [alunoParaRecompor, recomporDataInicio, recomporDataFim]);
 
   const handleBuscaInformativa = (e) => {
     const termo = e.target.value.toLowerCase();
@@ -830,6 +979,8 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
       
       <h3 className="text-xl font-semibold mt-5 mb-2">Selecionar Turma:</h3>
       <select value={turmaSelecionada} onChange={e => setTurmaSelecionada(e.target.value)} className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600">
+        {/* <<< ALTERAÇÃO 3: Adicionada opção padrão para o dropdown */}
+        <option value="">Selecione uma Turma</option>
         {turmasPermitidas().map(turma => (
           <option key={turma} value={turma}>
             {turmasDisponiveis.find(t => normalizeTurmaChar(t.name) === turma)?.name || turma}
@@ -867,7 +1018,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
               />
             )}
             <p>
-              **{alunoInfoEncontrado.nome}** pertence à turma **{normalizeTurmaChar(alunoInfoEncontrado.turma)}**.
+              <strong>{alunoInfoEncontrado.nome}</strong> pertence à turma <strong>{normalizeTurmaChar(alunoInfoEncontrado.turma)}</strong>.
             </p>
           </div>
         )}
@@ -890,9 +1041,38 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
         <span className="ml-5 font-semibold">📆 Exportar período:</span>
         <input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" />
         <input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} className="ml-1 p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" />
-        <button onClick={exportarPeriodo} className="ml-1 px-4 py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors duration-200 shadow-md">
-          🖨 PDF
-        </button>
+        
+        {/* MODIFICAÇÃO AQUI: Botão PDF que abre as opções */}
+        <div className="relative inline-block text-left">
+          <button
+            onClick={() => setShowExportOptions(!showExportOptions)}
+            className="ml-1 px-4 py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors duration-200 shadow-md"
+          >
+            🖨 PDF
+          </button>
+
+          {/* Opções de exportação que aparecem ao clicar no PDF */}
+          {showExportOptions && (
+            <div className="absolute z-10 mt-2 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-gray-700" role="menu" aria-orientation="vertical" aria-labelledby="menu-button">
+              <div className="py-1" role="none">
+                <button
+                  onClick={() => exportarPeriodo(false)} // Exporta apenas a turma selecionada
+                  className="text-gray-700 dark:text-gray-200 block px-4 py-2 text-sm w-full text-left hover:bg-gray-100 dark:hover:bg-gray-600"
+                  role="menuitem"
+                >
+                  Imprimir Turma Selecionada
+                </button>
+                <button
+                  onClick={() => exportarPeriodo(true)} // Exporta todas as turmas
+                  className="text-gray-700 dark:text-gray-200 block px-4 py-2 text-sm w-full text-left hover:bg-gray-100 dark:hover:bg-gray-600"
+                  role="menuitem"
+                >
+                  Imprimir Todas as Turmas
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
       
       {/* NOVIDADE GRÁFICO: Botões de controle de visibilidade e exportação separados */}
@@ -930,8 +1110,8 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
                 <GraficoSemanal 
                     chartRef={graficoSemanalRef} // NOVIDADE: Passa o ref para o componente
                     registros={registros} // Recebe TODOS os registros (ativos e inativos)
-                    dataInicio={dataInicio || '2024-01-01'} // Usar dataInicio do estado ou padrão
-                    dataFim={dataFim || getTodayDateString()} 
+                    dataInicio={dataInicio} // ===== ALTERAÇÃO AQUI =====: Removido fallback
+                    dataFim={dataFim} // ===== ALTERAÇÃO AQUI =====: Removido fallback
                 />
               </div>
             )}
@@ -971,7 +1151,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
               <div className="mt-8 border border-gray-300 p-6 rounded-lg shadow-lg bg-white dark:bg-gray-800 dark:border-gray-700">
                 <h4 className="text-xl font-semibold mb-4">Editar Aluno(a)</h4>
                 <input placeholder="Nome" value={novoAluno.nome} onChange={e => setNovoAluno({ ...novoAluno, nome: e.target.value })} className="block w-full p-2 mb-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" /><br />
-                <input placeholder="Turma" value={novoAluno.turma} onChange={e => setNovoAluno({ ...novoAluno, turma: e.target.value })} className="block w-full p-2 mb-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" /><br />
+                <input placeholder="Turma" value={novoAluno.turma} onChange={e => setNovoAluno({ ...novoAluno.turma, turma: e.target.value })} className="block w-full p-2 mb-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" /><br />
                 <input placeholder="Contato" value={novoAluno.contato} onChange={e => setNovoAluno({ ...novoAluno, contato: e.target.value })} className="block w-full p-2 mb-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" /><br />
                 <input placeholder="Responsável" value={novoAluno.responsavel} onChange={e => setNovoAluno({ ...novoAluno, responsavel: e.target.value })} className="block w-full p-2 mb-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" /><br />
                 <input placeholder="Monitor(a)" value={novoAluno.monitor} onChange={e => setNovoAluno({ ...novoAluno, monitor: e.target.value })} className="block w-full p-2 mb-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" /><br />
@@ -989,7 +1169,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
                       <button
                         type="button"
                         onClick={() => handleExcluirFoto(novoAluno)}
-                        className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors duration-200 shadow-md"
+                      	className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors duration-200 shadow-md"
                       >
                         Excluir Foto
                       </button>
@@ -1009,7 +1189,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
                 </button>
                 <button onClick={() => setEditandoAluno(null)} className="ml-2 px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors duration-200 shadow-md">
                   Cancelar
-                </button>
+            	  </button>
               </div>
             )}
 
@@ -1017,11 +1197,11 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
                 <div ref={dropdownRef} className="fixed z-50 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg p-3" style={{ top: dropdownPosition.top + dropdownPosition.height + 5, left: dropdownPosition.left, minWidth: '250px', maxWidth: '350px', }}>
                   <h4 className="text-sm font-semibold mb-2 text-gray-900 dark:text-white">Selecione as Observações para {currentAlunoForObservation.nome}:</h4>
                   <div className="space-y-2 mb-4 max-h-60 overflow-y-auto pr-2">
-                      {opcoesObservacao.map((opcao, i) => (<div key={i} className="flex items-center">{opcao === "Outros" ? (<label className="flex items-center w-full"><input type="checkbox" className="form-checkbox h-4 w-4 text-blue-600 rounded" checked={tempSelectedObservations.has("Outros")} onChange={() => handleCheckboxChange("Outros")} /><span className="ml-2 text-gray-700 dark:text-gray-300">Outros:</span><input type="text" value={otherObservationText} onChange={handleOtherTextChange} placeholder="Digite sua observação personalizada" className="ml-2 flex-grow p-1 border border-gray-300 rounded-md dark:bg-gray-700 dark:text-white dark:border-gray-600" /></label>) : (<label className="flex items-center"><input type="checkbox" className="form-checkbox h-4 w-4 text-blue-600 rounded" checked={tempSelectedObservations.has(opcao)} onChange={() => handleCheckboxChange(opcao)} /><span className="ml-2 text-gray-700 dark:text-gray-300">{opcao}</span></label>)}</div>))}
+                    	{opcoesObservacao.map((opcao, i) => (<div key={i} className="flex items-center">{opcao === "Outros" ? (<label className="flex items-center w-full"><input type="checkbox" className="form-checkbox h-4 w-4 text-blue-600 rounded" checked={tempSelectedObservations.has("Outros")} onChange={() => handleCheckboxChange("Outros")} /><span className="ml-2 text-gray-700 dark:text-gray-300">Outros:</span><input type="text" value={otherObservationText} onChange={handleOtherTextChange} placeholder="Digite sua observação personalizada" className="ml-2 flex-grow p-1 border border-gray-300 rounded-md dark:bg-gray-700 dark:text-white dark:border-gray-600" /></label>) : (<label className="flex items-center"><input type="checkbox" className="form-checkbox h-4 w-4 text-blue-600 rounded" checked={tempSelectedObservations.has(opcao)} onChange={() => handleCheckboxChange(opcao)} /><span className="ml-2 text-gray-700 dark:text-gray-300">{opcao}</span></label>)}</div>))}
                   </div>
                   <div className="flex justify-end space-x-2 mt-3">
-                      <button onClick={closeObservationDropdown} className="px-3 py-1 rounded-lg bg-red-500 text-white text-xs hover:bg-red-600 transition-colors duration-200 shadow-sm">Cancelar</button>
-                      <button onClick={handleSaveObservations} className="px-3 py-1 rounded-lg bg-green-500 text-white text-xs hover:bg-green-600 transition-colors duration-200 shadow-sm">Salvar</button>
+                    	<button onClick={closeObservationDropdown} className="px-3 py-1 rounded-lg bg-red-500 text-white text-xs hover:bg-red-600 transition-colors duration-200 shadow-sm">Cancelar</button>
+                    	<button onClick={handleSaveObservations} className="px-3 py-1 rounded-lg bg-green-500 text-white text-xs hover:bg-green-600 transition-colors duration-200 shadow-sm">Salvar</button>
                   </div>
                 </div>
             )}
@@ -1030,91 +1210,91 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
                 <div className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-start justify-center z-50 p-4">
                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
                         {completeReportData ? (
-                          <>
-                            <h3 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">
-                              Relatório do(a) Aluno(a): {completeReportData.aluno.nome}
-                            </h3>
-                            
-                            {/* NOVIDADE FOTO: Exibe a foto no relatório completo */}
-                            {completeReportData.aluno.fotoUrl && (
-                              <div className="mb-4 flex justify-center">
-                                <img
-                                  src={completeReportData.aluno.fotoUrl}
-                                  alt={`Foto de ${completeReportData.aluno.nome}`}
-                                  className="w-32 h-32 object-cover rounded-full border-2 border-gray-300 dark:border-gray-600"
-                                />
-                              </div>
-                            )}
+            	            <>
+      	                  	<h3 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">
+      	                  	  Relatório do(a) Aluno(a): {completeReportData.aluno.nome}
+      	                  	</h3>
+        	                  
+      	                  	{/* NOVIDADE FOTO: Exibe a foto no relatório completo */}
+      	                  	{completeReportData.aluno.fotoUrl && (
+      	                  	  <div className="mb-4 flex justify-center">
+      		                  	<img
+      			                  	src={completeReportData.aluno.fotoUrl}
+      			                  	alt={`Foto de ${completeReportData.aluno.nome}`}
+      			                  	className="w-32 h-32 object-cover rounded-full border-2 border-gray-300 dark:border-gray-600"
+      		                  	/>
+      	                  	  </div>
+      	            	    )}
 
-                            <div className="flex gap-4 mb-6">
-                              <button
-                                  onClick={exportCompleteReportPDF}
-                                  className="px-4 py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors duration-200 shadow-md"
-                              >
-                                  Exportar PDF
-                              </button>
-                            </div>
+      	                  <div className="flex gap-4 mb-6">
+      		                	<button
+      			                	onClick={exportCompleteReportPDF}
+      			                	className="px-4 py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors duration-200 shadow-md"
+      		                	>
+      			                	Exportar PDF
+      		                	</button>
+      	                  </div>
 
-                            <div className="bg-gray-100 dark:bg-gray-700 p-4 rounded-lg shadow-inner">
-                              <h4 className="text-xl font-bold mb-3 text-gray-900 dark:text-white">Dados do Relatório</h4>
-                              <p className="text-gray-700 dark:text-gray-300 mb-1"><strong>Período Analisado:</strong> {completeReportData.periodo}</p>
-                              <p className="text-gray-700 dark:text-gray-300 mb-1"><strong>Total de Faltas no Período:</strong> {completeReportData.faltasAluno}</p>
-                              <p className="text-gray-700 dark:text-gray-300 mb-1"><strong>Turma:</strong> {normalizeTurmaChar(completeReportData.aluno.turma)}</p>
-                              <p className="text-gray-700 dark:text-gray-300 mb-3"><strong>Responsável:</strong> {completeReportData.aluno.responsavel}</p>
+      	                  <div className="bg-gray-100 dark:bg-gray-700 p-4 rounded-lg shadow-inner">
+      		                	<h4 className="text-xl font-bold mb-3 text-gray-900 dark:text-white">Dados do Relatório</h4>
+      		                	<p className="text-gray-700 dark:text-gray-300 mb-1"><strong>Período Analisado:</strong> {completeReportData.periodo}</p>
+      		                	<p className="text-gray-700 dark:text-gray-300 mb-1"><strong>Total de Faltas no Período:</strong> {completeReportData.faltasAluno}</p>
+      		                	<p className="text-gray-700 dark:text-gray-300 mb-1"><strong>Turma:</strong> {normalizeTurmaChar(completeReportData.aluno.turma)}</p>
+      		                	<p className="text-gray-700 dark:text-gray-300 mb-3"><strong>Responsável:</strong> {completeReportData.aluno.responsavel}</p>
 
-                              <h5 className="text-lg font-semibold mb-2 text-gray-900 dark:text-white">Métricas Comparativas:</h5>
-                              <ul className="list-disc list-inside text-gray-700 dark:text-gray-300 mb-3">
-                                  <li className="font-bold">Percentual de Faltas do(a) Aluno(a): {completeReportData.porcentagemAluno}%</li>
-                                  <li>Média de Faltas da Turma: {completeReportData.porcentagemTurma}%</li>
-                                  <li>Média de Faltas da Escola: {completeReportData.porcentagemEscola}%</li>
-                              </ul>
-                              
-                              {completeReportData.justificativasNoPeriodo.length > 0 ? (
-                                  <>
-                                    <h5 className="text-lg font-semibold mt-4 mb-2 text-gray-900 dark:text-white">Justificativas de Falta no Período:</h5>
-                                    <ul className="list-disc list-inside text-gray-700 dark:text-gray-300">
-                                        {completeReportData.justificativasNoPeriodo.map((jus, idx) => (
-                                            <li key={idx}><strong>{jus.data}:</strong> {jus.justificativa}</li>
-                                        ))}
-                                    </ul>
-                              </>
-                              ) : (
-                                <p className="text-gray-700 dark:text-gray-300 mt-4">Nenhuma falta justificada registrada para este(a) aluno(a) no período.</p>
-                              )}
+      		                	<h5 className="text-lg font-semibold mb-2 text-gray-900 dark:text-white">Métricas Comparativas:</h5>
+      		                	<ul className="list-disc list-inside text-gray-700 dark:text-gray-300 mb-3">
+      			              	  <li className="font-bold">Percentual de Faltas do(a) Aluno(a): {completeReportData.porcentagemAluno}%</li>
+      			              	  <li>Média de Faltas da Turma: {completeReportData.porcentagemTurma}%</li>
+      			              	  <li>Média de Faltas da Escola: {completeReportData.porcentagemEscola}%</li>
+      		              	  </ul>
+      		                
+      		              	  {completeReportData.justificativasNoPeriodo.length > 0 ? (
+      			              	  <>
+      				              	  <h5 className="text-lg font-semibold mt-4 mb-2 text-gray-900 dark:text-white">Justificativas de Falta no Período:</h5>
+      				              	  <ul className="list-disc list-inside text-gray-700 dark:text-gray-300">
+      					              	  {completeReportData.justificativasNoPeriodo.map((jus, idx) => (
+      						              	  <li key={idx}><strong>{jus.data}:</strong> {jus.justificativa}</li>
+      					              	  ))}
+      				              	  </ul>
+      			              	  </>
+      		              	  ) : (
+      			              	  <p className="text-gray-700 dark:text-gray-300 mt-4">Nenhuma falta justificada registrada para este(a) aluno(a) no período.</p>
+      		              	  )}
 
-                              {completeReportData.observacoesAlunoNoPeriodo.length > 0 ? (
-                                  <>
-                                    <h5 className="text-lg font-semibold mt-4 mb-2 text-gray-900 dark:text-white">Observações no Período:</h5>
-                                    <ul className="list-disc list-inside text-gray-700 dark:text-gray-300">
-                                        {completeReportData.observacoesAlunoNoPeriodo.map((obs, idx) => (
-                                            <li key={idx}><strong>{obs.data}:</strong> {obs.observacoes}</li>
-                                        ))}
-                                    </ul>
-                              </>
-                              ) : (
-                                <p className="text-gray-700 dark:text-gray-300 mt-4">Nenhuma observação registrada para este(a) aluno(a) no período.</p>
-                              )}
-                            </div>
-                          </>
-                        ) : (
-                          <p>Carregando dados do relatório...</p>
-                        )}
+      		              	  {completeReportData.observacoesAlunoNoPeriodo.length > 0 ? (
+      			              	  <>
+      				              	  <h5 className="text-lg font-semibold mt-4 mb-2 text-gray-900 dark:text-white">Observações no Período:</h5>
+      				              	  <ul className="list-disc list-inside text-gray-700 dark:text-gray-300">
+      					              	  {completeReportData.observacoesAlunoNoPeriodo.map((obs, idx) => (
+      						              	  <li key={idx}><strong>{obs.data}:</strong> {obs.observacoes}</li>
+      					              	  ))}
+      				              	  </ul>
+      			              	  </>
+      		              	  ) : (
+      			              	  <p className="text-gray-700 dark:text-gray-300 mt-4">Nenhuma observação registrada para este(a) aluno(a) no período.</p>
+      		            	    )}
+      	                </div>
+      	          	    </>
+      	            ) : (
+      		          	<p>Carregando dados do relatório...</p>
+      	            )}
 
-                        <div className="flex justify-end mt-6">
-                            <button
-                                onClick={() => {
-                                    setShowCompleteReportModal(false);
-                                    setSelectedStudentForReport(null);
-                                    setCompleteReportData(null);
-                                }}
-                                className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors duration-200 shadow-md"
-                            >
-                                Fechar
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+      	            <div className="flex justify-end mt-6">
+      		          	<button
+      			          	onClick={() => {
+      				          	setShowCompleteReportModal(false);
+      				          	setSelectedStudentForReport(null);
+      				          	setCompleteReportData(null);
+      			          	}}
+      			          	className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors duration-200 shadow-md"
+      		          	>
+      			          	Fechar
+      		          	</button>
+      	          	</div>
+      	      	  </div>
+      	    	</div>
+      	    )}
 
             {isRecomporModalOpen && alunoParaRecompor && (
               <div className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-start justify-center z-50 p-4">
@@ -1124,46 +1304,46 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
                   </h3>
                   <p className="mb-4 text-gray-600 dark:text-gray-300">
                     Selecione o período para limpar as justificativas deste(a) aluno(a). Esta ação é útil para abonar faltas após a recomposição de aprendizagem.
-                  </p>
+            	    </p>
                   <div className="flex items-center gap-4 mb-4">
                     <div>
-                      <label htmlFor="recompor-inicio" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Data de Início</label>
-                      <input
-                        type="date"
-                        id="recompor-inicio"
-                        value={recomporDataInicio}
-                        onChange={e => setRecomporDataInicio(e.target.value)}
-                        className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="recompor-fim" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Data de Fim</label>
-                      <input
-                        type="date"
-                        id="recompor-fim"
-                        value={recomporDataFim}
-                        onChange={e => setRecomporDataFim(e.target.value)}
-                        className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex justify-end gap-4 mt-6">
-                      <button
-                          onClick={() => setIsRecomporModalOpen(false)}
-                          className="px-4 py-2 rounded-lg bg-gray-500 text-white hover:bg-gray-600 transition-colors duration-200 shadow-md"
-                      >
-                          Cancelar
-                      </button>
-                      <button
-                          onClick={handleConfirmarRecomposicao}
-                          className="px-4 py-2 rounded-lg bg-orange-500 text-white hover:bg-orange-600 transition-colors duration-200 shadow-md"
-                      >
-                          Confirmar Recomposição
-                      </button>
-                  </div>
-                </div>
-              </div>
-            )}
+            	        <label htmlFor="recompor-inicio" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Data de Início</label>
+            	        <input
+            		      type="date"
+            		      id="recompor-inicio"
+            		      value={recomporDataInicio}
+            		      onChange={e => setRecomporDataInicio(e.target.value)}
+            		      className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+            	      	/>
+                  	</div>
+                  	<div>
+            	      	<label htmlFor="recompor-fim" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Data de Fim</label>
+            	      	<input
+            		      	type="date"
+            		      	id="recompor-fim"
+            		      	value={recomporDataFim}
+            		      	onChange={e => setRecomporDataFim(e.target.value)}
+            		      	className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+            	      	/>
+                	  </div>
+                	</div>
+                	<div className="flex justify-end gap-4 mt-6">
+            	    	<button
+            		    	onClick={() => setIsRecomporModalOpen(false)}
+            		    	className="px-4 py-2 rounded-lg bg-gray-500 text-white hover:bg-gray-600 transition-colors duration-200 shadow-md"
+            	    	>
+            		    	Cancelar
+            	    	</button>
+            	    	<button
+            		    	onClick={handleConfirmarRecomposicao}
+            		    	className="px-4 py-2 rounded-lg bg-orange-500 text-white hover:bg-orange-600 transition-colors duration-200 shadow-md"
+            	    	>
+            		    	Confirmar Recomposição
+            	    	</button>
+              	  </div>
+            	</div>
+          	</div>
+        	)}
 
             {/* NOVIDADE FOTO: Renderiza o CameraModal */}
             {isCameraModalOpen && alunoParaFoto && (
@@ -1187,7 +1367,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
                     className="p-1 bg-white dark:bg-gray-800 rounded-lg shadow-2xl border border-gray-300 dark:border-gray-700"
                 >
                     <img src={viewingPhotoUrl} alt="Foto do Aluno" className="w-48 h-64 object-cover rounded" />
-                </div>
+  	        	</div>
             )}
         </>
       )} {/* Fim da renderização condicional do loading */}

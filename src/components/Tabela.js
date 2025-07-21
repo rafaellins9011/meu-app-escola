@@ -27,8 +27,8 @@ const Tabela = ({
   onSelecionarLinha,
   onAbrirModalRecomposicao,
   onAbrirModalFoto, // Nova prop para abrir o modal da câmera
-  onViewPhoto,      // Nova prop para visualizar a foto flutuante
-  onExcluirFoto     // Nova prop para excluir a foto
+  onViewPhoto,       // Nova prop para visualizar a foto flutuante
+  onExcluirFoto      // Nova prop para excluir a foto
 }) => {
 
   const opcoesJustificativa = [
@@ -38,6 +38,7 @@ const Tabela = ({
     "Viagem",
     "Sem retorno",
     "Falta não justificada",
+    "Licença-maternidade",
     "Luto",
     "Outros"
   ];
@@ -59,7 +60,7 @@ const Tabela = ({
     }
 
     const chave = `${aluno.nome}_${normalizeTurmaChar(aluno.turma)}_${dataSelecionada}`;
-    
+
     const atualizado = {
       ...aluno,
       justificativas: {
@@ -108,6 +109,9 @@ const Tabela = ({
               const justificativaAtualCompleta = aluno.justificativas?.[chaveJustificativa] || '';
               
               let justificativaDropdown = justificativaAtualCompleta;
+              // Se a justificativa começa com "Outros: ", definimos o dropdown para "Outros"
+              // Caso contrário, se for vazio, definimos para "Selecione"
+              // Senão, usamos a justificativa completa (para as opções pré-definidas)
               if (justificativaAtualCompleta.startsWith("Outros: ")) {
                   justificativaDropdown = "Outros";
               } else if (justificativaAtualCompleta === "") {
@@ -121,18 +125,25 @@ const Tabela = ({
               // Usamos aluno.id como a chave única para o React, pois ele é estável e único do Firestore.
               const isSelected = linhaSelecionada === aluno.id; // Agora compara com o ID do aluno
 
+              // Extrai o texto da justificativa "Outros" para exibir no tooltip
+              const textoOutrosTooltip = justificativaAtualCompleta.startsWith("Outros: ") 
+                                          ? justificativaAtualCompleta.replace("Outros: ", "") 
+                                          : '';
+
               return (
                 <tr 
                   key={aluno.id} // CORRIGIDO: Usar aluno.id como key
                   onClick={() => onSelecionarLinha(aluno.id)} // CORRIGIDO: Passa o ID do aluno
+                  // REMOVIDAS as classes Tailwind de zebragem para usar o CSS puro do index.css
+                  // As classes de seleção e hover são mantidas, assumindo que são estilos básicos ou que o Tailwind ainda tem algum papel.
                   className={`border-b border-gray-200 dark:border-gray-700 transition-colors duration-150 cursor-pointer 
                     ${isSelected 
                       ? 'bg-green-200 dark:bg-green-800' 
-                      : 'even:bg-gray-100 dark:even:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'
+                      : 'hover:bg-gray-200 dark:hover:bg-gray-600' // 'even:bg-gray-100 dark:even:bg-gray-700' foi removido aqui
                     }`}
                 >
                   <td className="py-3 px-4 text-sm text-gray-900 dark:text-gray-100">{index + 1}</td>
-                  {/* NOVIDADE LAYOUT: Célula da foto (somente botão de visualização) */}
+                  {/* Célula da foto (somente botão de visualização) */}
                   <td className="py-3 px-4 text-sm text-center">
                     {aluno.fotoUrl ? (
                       <button
@@ -151,24 +162,28 @@ const Tabela = ({
                   <td className="py-3 px-4 text-sm text-gray-900 dark:text-gray-100">{aluno.contato}</td>
                   <td className="py-3 px-4 text-sm text-gray-900 dark:text-gray-100">{aluno.responsavel}</td>
                   <td className="py-3 px-4 text-sm">
-                    <select
-                      value={justificativaDropdown}
-                      onChange={(e) => {
-                        e.stopPropagation(); 
-                        handleJustificativa(aluno, e.target.value); // Chama a função auxiliar
-                      }}
-                      onClick={(e) => e.stopPropagation()} 
-                      className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
-                    >
-                      {opcoesJustificativa.map((opcao, i) => (
-                        <option key={i} value={opcao}>{opcao}</option>
-                      ))}
-                    </select>
-                    {justificativaAtualCompleta.startsWith("Outros: ") && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            {justificativaAtualCompleta.replace("Outros: ", "")}
-                        </p>
-                    )}
+                    {/* Agora usamos as classes CSS puras para o tooltip */}
+                    <div className="tooltip-container"> 
+                        <select
+                            value={justificativaDropdown}
+                            onChange={(e) => {
+                                e.stopPropagation(); 
+                                handleJustificativa(aluno, e.target.value); // Chama a função auxiliar
+                            }}
+                            onClick={(e) => e.stopPropagation()} 
+                            className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600 w-full"
+                        >
+                            {opcoesJustificativa.map((opcao, i) => (
+                                <option key={i} value={opcao}>{opcao}</option>
+                            ))}
+                        </select>
+                        {/* O tooltip só será exibido se a justificativa for 'Outros' E tiver texto digitado */}
+                        {justificativaDropdown === "Outros" && textoOutrosTooltip && (
+                            <span className="tooltip-text">
+                                {textoOutrosTooltip}
+                            </span>
+                        )}
+                    </div>
                   </td>
                   <td className="py-3 px-4 text-sm relative">
                       <button
@@ -184,7 +199,7 @@ const Tabela = ({
                   </td>
                   <td className="py-3 px-4 text-sm">
                     <div className="flex flex-nowrap gap-2" onClick={(e) => e.stopPropagation()}>
-                      {/* NOVIDADE LAYOUT: Botões de foto movidos para a coluna de Ações */}
+                      {/* Botões de ação */}
                       {aluno.fotoUrl ? (
                         <button
                           onClick={(e) => { e.stopPropagation(); onExcluirFoto(aluno); }}
