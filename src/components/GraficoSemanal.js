@@ -52,31 +52,25 @@ const getDatesBetween = (startDate, endDate) => {
   return dates;
 };
 
-// ALTERAÇÃO: Adicionado valores padrão para dataInicio e dataFim
-// A semana de 22/07/2025 (terça) começa em 20/07/2025 (domingo) e termina em 26/07/2025 (sábado)
 const GraficoSemanal = ({
-  registros,
+  registros = [], // MODIFICAÇÃO CHAVE AQUI: Define registros como um array vazio por padrão
   chartRef,
   dataInicio = '2025-07-20',
   dataFim = '2025-07-26'
 }) => {
-  // NOVIDADE: Calcula o total de alunos matriculados a partir dos 'registros'
-  const totalAlunosMatriculados = registros ? registros.length : 0;
+  // Agora 'registros' é garantidamente um array, então .length é seguro
+  const totalAlunosMatriculados = registros.length;
   // Garante que não é zero para evitar divisão por zero nos cálculos de porcentagem
   const alunosParaCalculo = totalAlunosMatriculados > 0 ? totalAlunosMatriculados : 1;
 
-  // Se as props dataInicio e dataFim forem passadas, elas serão usadas.
-  // Se não, os valores padrão acima serão usados.
   const inicioPeriodo = dataInicio;
   const fimPeriodo = dataFim;
 
-  // O restante do seu código permanece exatamente o mesmo.
   const faltasPorSemana = {};
   const atrasosPorSemana = {};
   const faltasPorDia = {};
   const atrasosPorDia = {};
 
-  // NOVIDADE: Variáveis para contar o total de faltas e atrasos no período
   let totalFaltasPeriodo = 0;
   let totalAtrasosPeriodo = 0;
 
@@ -87,7 +81,7 @@ const GraficoSemanal = ({
     atrasosPorDia[date] = 0;
   });
 
-  registros.forEach(aluno => {
+  registros.forEach(aluno => { // Agora 'registros' é garantidamente um array
     if (aluno.justificativas) {
       Object.keys(aluno.justificativas).forEach(chave => {
         const dataFalta = chave.split('_')[2];
@@ -95,7 +89,6 @@ const GraficoSemanal = ({
           const semanaDeInicio = getStartOfWeek(dataFalta + 'T00:00:00');
           faltasPorSemana[semanaDeInicio] = (faltasPorSemana[semanaDeInicio] || 0) + 1;
           faltasPorDia[dataFalta] = (faltasPorDia[dataFalta] || 0) + 1;
-          // NOVIDADE: Contar o total de faltas
           totalFaltasPeriodo += 1;
         }
       });
@@ -108,7 +101,6 @@ const GraficoSemanal = ({
             const semanaDeInicio = getStartOfWeek(dataObs + 'T00:00:00');
             atrasosPorSemana[semanaDeInicio] = (atrasosPorSemana[semanaDeInicio] || 0) + 1;
             atrasosPorDia[dataObs] = (atrasosPorDia[dataObs] || 0) + 1;
-            // NOVIDADE: Contar o total de atrasos
             totalAtrasosPeriodo += 1;
           }
         }
@@ -140,7 +132,6 @@ const GraficoSemanal = ({
         borderColor: 'rgba(54, 162, 235, 1)',
         borderWidth: 1,
         order: 2,
-        // NOVIDADE: Callback para o tooltip exibir a porcentagem semanal de faltas em relação ao total de alunos
         tooltip: {
           callbacks: {
             label: function(context) {
@@ -150,7 +141,6 @@ const GraficoSemanal = ({
               }
               const count = context.parsed.y;
               label += count;
-              // Alterado para usar alunosParaCalculo
               if (alunosParaCalculo > 0) {
                 const percentage = ((count / alunosParaCalculo) * 100).toFixed(1);
                 label += ` (${percentage}%)`;
@@ -168,7 +158,6 @@ const GraficoSemanal = ({
         borderColor: 'rgba(255, 206, 86, 1)',
         borderWidth: 1,
         order: 2,
-        // NOVIDADE: Callback para o tooltip exibir a porcentagem semanal de atrasos em relação ao total de alunos
         tooltip: {
           callbacks: {
             label: function(context) {
@@ -178,7 +167,6 @@ const GraficoSemanal = ({
               }
               const count = context.parsed.y;
               label += count;
-              // Alterado para usar alunosParaCalculo
               if (alunosParaCalculo > 0) {
                 const percentage = ((count / alunosParaCalculo) * 100).toFixed(1);
                 label += ` (${percentage}%)`;
@@ -199,7 +187,6 @@ const GraficoSemanal = ({
         pointRadius: 5,
         pointBackgroundColor: 'rgba(255, 99, 132, 1)',
         order: 1,
-        // NOVIDADE: Callback para o tooltip exibir a porcentagem diária de faltas em relação ao total de alunos
         tooltip: {
           callbacks: {
             label: function(context) {
@@ -209,7 +196,6 @@ const GraficoSemanal = ({
               }
               const count = context.parsed.y;
               label += count;
-              // Alterado para usar alunosParaCalculo
               if (alunosParaCalculo > 0) {
                 const percentage = ((count / alunosParaCalculo) * 100).toFixed(1);
                 label += ` (${percentage}%)`;
@@ -230,7 +216,6 @@ const GraficoSemanal = ({
         pointRadius: 5,
         pointBackgroundColor: 'rgba(75, 192, 192, 1)',
         order: 1,
-        // NOVIDADE: Callback para o tooltip exibir a porcentagem diária de atrasos em relação ao total de alunos
         tooltip: {
           callbacks: {
             label: function(context) {
@@ -240,7 +225,6 @@ const GraficoSemanal = ({
               }
               const count = context.parsed.y;
               label += count;
-              // Alterado para usar alunosParaCalculo
               if (alunosParaCalculo > 0) {
                 const percentage = ((count / alunosParaCalculo) * 100).toFixed(1);
                 label += ` (${percentage}%)`;
@@ -266,7 +250,6 @@ const GraficoSemanal = ({
           size: 18,
         }
       },
-      // O tooltip global foi removido aqui pois cada dataset tem seu próprio callback agora.
     },
     scales: {
       x: {
@@ -294,7 +277,6 @@ const GraficoSemanal = ({
   return (
     <div className="mt-8 p-6 bg-white dark:bg-gray-800 rounded-lg shadow-lg">
       <Bar ref={chartRef} data={data} options={options} />
-      {/* NOVIDADE: Exibindo o total de alunos matriculados */}
       <div className="mt-4 text-center">
         <p className="text-lg font-semibold">Total de Alunos Matriculados: <span className="text-blue-600">{totalAlunosMatriculados}</span></p>
       </div>
