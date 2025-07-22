@@ -14,6 +14,7 @@
 // CORREÇÃO ERRO CRÍTICO: Corrigido o erro 'pdfWidth is not defined' para 'pageWidth'.
 // ATUALIZAÇÃO COMPRESSÃO: Gráficos exportados em JPEG com compressão para arquivos mais leves.
 // MODIFICAÇÃO DE UI: Botão 'Exportar Gráfico de Faltas' movido para dentro de GraficoFaltas.js.
+// NOVIDADE WHATSAPP OBS: Adicionado botão para enviar mensagens de observação via WhatsApp, com observações em negrito e mensagem única.
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { turmasDisponiveis, monitoresDisponiveis, gestoresDisponiveis } from '../dados'; // Manter para dados estáticos
@@ -28,12 +29,16 @@ import CameraModal from './CameraModal'; // NOVIDADE FOTO: Importado o CameraMod
 // NOVIDADE FIRESTORE: Importar db e funções do Firestore
 import { db } from '../firebaseConfig'; // Importa a instância do Firestore
 import { collection, getDocs, doc, setDoc, updateDoc, writeBatch, getDoc, onSnapshot } from 'firebase/firestore';
- // Funções Firestore
+// Funções Firestore
 
 const formatarData = (dataStr) => {
   if (!dataStr) return '';
-  const [ano, mes, dia] = dataStr.split('-');
-  return `${dia}/${mes}/${ano}`;
+  // Garante que a data seja interpretada como UTC para evitar problemas de fuso horário
+  const dateObj = new Date(dataStr + 'T00:00:00');
+  const day = dateObj.getDate().toString().padStart(2, '0');
+  const month = (dateObj.getMonth() + 1).toString().padStart(2, '0');
+  const year = dateObj.getFullYear();
+  return `${day}/${month}/${year}`;
 };
 
 const getTodayDateString = () => {
@@ -46,6 +51,79 @@ const getTodayDateString = () => {
 
 const normalizeTurmaChar = (turma) => {
   return String(turma).replace(/°/g, 'º');
+};
+
+// --- MENSAGENS PREDEFINIDAS PARA OBSERVAÇÕES ---
+// Cada entrada contém o título em negrito para o WhatsApp (usando **) e uma função que retorna o corpo da mensagem.
+const observationMessages = {
+  "Chegou atrasado(a).": {
+    title: "**Chegou atrasado(a).**",
+    getBody: () => `Conforme estabelecido no Termo de Ajustamento de Normas e Conduta, a pontualidade é essencial para a rotina escolar, especialmente para a participação no movimento cívico-militar com os monitores. Diante disso, o(a) estudante não pôde participar da atividade inicial e pedimos a colaboração dos senhores para garantir que ele(a) chegue dentro do horário estabelecido, evitando prejuízos à sua formação disciplinar e acadêmica.`
+  },
+  "Cabelo fora do padrão.": {
+    title: "**Cabelo fora do padrão.**",
+    getBody: (aluno) => `O corte de cabelo de ${aluno.nome} não está de acordo com as normas estabelecidas pela escola, que exigem o padrão de corte à máquina nº 2 ou nº 3, nas partes parietais e occipitais do crânio, mantendo-se bem nítidos os contornos junto às orelhas e ao pescoço (corte social), conforme o padrão adotado na administração cívico-militar. Solicitamos a gentileza de orientá-lo(a) para que seja seguido o padrão adequado, evitando futuros impedimentos na participação das atividades escolares e formativas.`
+  },
+  "Sem tênis.": {
+    title: "**Sem tênis.**",
+    getBody: () => `Informamos que, conforme a Portaria nº 181/2024/GS/SEDUC/MT, o uso do uniforme escolar completo é obrigatório para acesso e permanência dos estudantes na escola, incluindo atividades curriculares e extracurriculares. Hoje, o(a) aluno(a) compareceu à escola sem o tênis adequado, que faz parte do uniforme obrigatório. Conforme o Art. 2º, §2º da portaria, o estudante deve utilizar o tênis fornecido pelo Estado ou outro calçado fechado. Solicitamos que providenciem o uso correto do uniforme para os próximos dias, garantindo assim o cumprimento das normas estabelecidas e a segurança do estudante.`
+  },
+  "Sem camisa do uniforme.": {
+    title: "**Sem camisa do uniforme.**",
+    getBody: () => `Informamos que, conforme a Portaria nº 181/2024/GS/SEDUC/MT, o uso do uniforme escolar completo é obrigatório para acesso e permanência dos estudantes na escola, incluindo atividades curriculares e extracurriculares. Hoje, o(a) aluno(a) compareceu à escola sem a camisa do uniforme, que é parte essencial do vestuário obrigatório. Solicitamos que providenciem o uso correto do uniforme para os próximos dias, garantindo assim o cumprimento das normas estabelecidas e a segurança do estudante.`
+  },
+  "Desrespeitou professor(a), funcionário(a) e/ou colega de classe.": {
+    title: "**Desrespeito à autoridade ou colega.**",
+    getBody: () => `Demonstrou desrespeito com professor(a), funcionário(a) e/ou colega de classe. Nossa instituição preza pelo ambiente de respeito mútuo e boa convivência. Comportamentos como este comprometem a harmonia escolar e são passíveis de medidas disciplinares, conforme previsto no regimento interno da escola.`
+  },
+  "Desobedeceu e tumultuou a aula e a rotina escolar.": {
+    title: "**Desobediência e tumulto.**",
+    getBody: () => `Desobedeceu e tumultuou a aula e a rotina escolar. Nossa instituição preza pela disciplina e pelo foco no aprendizado, elementos essenciais para o desenvolvimento de todos os alunos. Comportamentos como este comprometem o bom andamento das atividades e são passíveis de medidas disciplinares, conforme previsto no regimento interno da escola.`
+  },
+  "Provocou conflitos com os(as) colegas.": {
+    title: "**Conflito com colegas.**",
+    getBody: () => `Esteve envolvido(a) em conflitos com os(as) colegas. Promovemos um ambiente escolar de paz e respeito, onde a convivência harmoniosa é fundamental para o bem-estar de todos. Tais atitudes são contrárias aos princípios de nossa escola e podem levar a medidas disciplinares, conforme o regimento interno.`
+  },
+  "Agrediu verbalmente e/ou fisicamente os(as) colegas.": {
+    title: "**Agressão a colegas.**",
+    getBody: () => `Agrediu verbalmente e/ou fisicamente um(a) colega. A escola não tolera qualquer forma de agressão, seja ela verbal ou física, e preza por um ambiente seguro e respeitoso para todos. Este comportamento é uma violação grave de nossas normas e resultará em medidas disciplinares rigorosas, conforme previsto no regimento interno da escola.`
+  },
+  "Agrediu verbalmente e/ou fisicamente os(as) professores(as) ou funcionários(as).": {
+    title: "**Agressão a professores(as) ou funcionários(as).**",
+    getBody: () => `Agrediu verbalmente e/ou fisicamente um(a) professor(a) ou funcionário(a) da escola. Agressões contra a equipe escolar são inaceitáveis e uma violação grave do nosso código de conduta. Este comportamento será tratado com a máxima seriedade e resultará em medidas disciplinares imediatas e rigorosas, de acordo com o regimento interno da escola e a legislação vigente.`
+  },
+  "Destruiu patrimônio público.": {
+    title: "**Destruição de patrimônio público.**",
+    getBody: () => `Foi identificado(a) causando a destruição de patrimônio público da escola. Preservar o ambiente escolar é uma responsabilidade de todos, e o respeito aos bens coletivos é um princípio fundamental. Danos ao patrimônio são passíveis de reparação e medidas disciplinares, conforme previsto em nosso regimento interno.`
+  },
+  "Destruiu e/ou perdeu material didático.": {
+    title: "**Destruição ou perda de material didático.**",
+    getBody: () => `Destruiu e/ou perdeu material didático importante para suas atividades. O material didático é uma ferramenta essencial para o aprendizado e seu cuidado é fundamental. A reposição do material será necessária e a situação poderá ser considerada em futuras avaliações de comportamento.`
+  },
+  "Usou indevidamente o celular e aparelhos eletrônicos.": {
+    title: "**Uso indevido de celular/eletrônicos.**",
+    getBody: () => `Foi flagrado(a) utilizando o telefone celular (ou outro aparelho eletrônico) em sala de aula, desrespeitando as normas da nossa instituição. Ressaltamos que, conforme estabelecido pelas Leis nº 12.745/2024 e nº 15.100/2025, é terminantemente proibido o uso de celular em ambiente escolar, salvo em situações autorizadas previamente pela equipe gestora. O uso indevido de aparelhos eletrônicos compromete o bom andamento das aulas e o foco dos alunos, sendo passível de medidas disciplinares, conforme previsto no regimento interno da escola.`
+  },
+  "Praticou bullying.": {
+    title: "**Prática de bullying.**",
+    getBody: () => `Praticou bullying contra um(a) colega. Nossa escola repudia veementemente qualquer forma de bullying e se dedica a promover um ambiente de respeito, inclusão e segurança para todos os estudantes. A prática de bullying é uma violação grave de nossas normas de convivência e será tratada com as medidas disciplinares cabíveis, conforme nosso regimento interno e a legislação anti-bullying.`
+  },
+  "Foi indisciplinado(a) em sala de aula.": {
+    title: "**Indisciplina em sala de aula.**",
+    getBody: () => `Apresentou comportamento indisciplinado em sala de aula. A manutenção da ordem e do foco durante as aulas é fundamental para o processo de ensino-aprendizagem de todos. Comportamentos que perturbam o ambiente de estudo podem resultar em medidas disciplinares, conforme o regimento interno da escola.`
+  },
+  "Não realizou as atividades na sala de aula e/ou lições de casa.": {
+    title: "**Não realização de atividades/lições de casa.**",
+    getBody: () => `Não realizou as atividades propostas em sala de aula e/ou as lições de casa. A dedicação às tarefas é crucial para o acompanhamento do conteúdo e o sucesso acadêmico do(a) estudante. A não realização contínua das atividades pode impactar o desempenho e a compreensão dos temas abordados.`
+  },
+  "Estava com uniforme incompleto.": {
+    title: "**Uniforme incompleto.**",
+    getBody: () => `Informamos que, conforme a Portaria nº 181/2024/GS/SEDUC/MT, o uso do uniforme escolar completo é obrigatório para acesso e permanência dos estudantes na escola, incluindo atividades curriculares e extracurriculares. Hoje, o(a) aluno(a) compareceu à escola com o uniforme incompleto. Solicitamos que providenciem o uso correto e completo do uniforme para os próximos dias, garantindo assim o cumprimento das normas estabelecidas e a segurança do estudante.`
+  },
+  "Outros": { // O item "Outros" tem um tratamento especial no corpo da mensagem.
+    title: "**Outras observações:**",
+    getBody: (customText) => customText
+  }
 };
 
 const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
@@ -77,9 +155,9 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
   // ESTADOS DA OBSERVAÇÃO
   const [isObservationDropdownOpen, setIsObservationDropdownOpen] = useState(false);
   const [currentAlunoForObservation, setCurrentAlunoForObservation] = useState(null);
-  const [tempSelectedObservations, setTempSelectedObservations] = useState(new Set()); // eslint-disable-line no-unused-vars
+  const [tempSelectedObservations, setTempSelectedObservations] = useState(new Set());
   const [otherObservationText, setOtherObservationText] = useState('');
-  
+
   // MODIFICAÇÃO AQUI: Estado para armazenar a posição do botão acionador do dropdown
   const [buttonPosition, setButtonPosition] = useState({ top: 0, left: 0, width: 0, height: 0 });
   const dropdownRef = useRef(null); // Ref para o div do dropdown de observações
@@ -113,7 +191,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
   const [recomporDataInicio, setRecomporDataInicio] = useState('');
   const [recomporDataFim, setRecomporDataFim] = useState('');
   const [termoBuscaTabela, setTermoBuscaTabela] = useState('');
-  
+
   const [termoBuscaInformativa, setTermoBuscaInformativa] = useState('');
   const [alunoInfoEncontrado, setAlunoInfoEncontrado] = useState(null);
 
@@ -156,36 +234,36 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
   }, []);
 
   useEffect(() => { /* Antigo: localStorage.setItem('registros', JSON.stringify(registros)); */ }, [registros]);
-  
-  const closeObservationDropdown = useCallback(() => { 
-    setIsObservationDropdownOpen(false); 
-    setCurrentAlunoForObservation(null); 
-    setTempSelectedObservations(new Set()); 
-    setOtherObservationText(''); 
+
+  const closeObservationDropdown = useCallback(() => {
+    setIsObservationDropdownOpen(false);
+    setCurrentAlunoForObservation(null);
+    setTempSelectedObservations(new Set());
+    setOtherObservationText('');
     setButtonPosition({ top: 0, left: 0, width: 0, height: 0 }); // Resetar posição
   }, []);
 
   // Modificado para usar buttonPosition em vez de dropdownPosition
-  useEffect(() => { 
-    const handleClickOutside = (event) => { 
-        if (dropdownRef.current && !dropdownRef.current.contains(event.target) && !event.target.closest('.observation-button')) { 
-            closeObservationDropdown(); 
-        } 
-    }; 
-    document.addEventListener("mousedown", handleClickOutside); 
-    return () => { document.removeEventListener("mousedown", handleClickOutside); }; 
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+        if (dropdownRef.current && !dropdownRef.current.contains(event.target) && !event.target.closest('.observation-button')) {
+            closeObservationDropdown();
+        }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => { document.removeEventListener("mousedown", handleClickOutside); };
   }, [dropdownRef, closeObservationDropdown]);
 
   useEffect(() => { document.body.style.backgroundColor = temaEscuro ? '#121212' : '#ffffff'; document.body.style.color = temaEscuro ? '#ffffff' : '#000000'; localStorage.setItem('tema', temaEscuro ? 'escuro' : 'claro'); }, [temaEscuro]);
   const turmasPermitidas = useCallback(() => { let allowedTurmas = []; const usuarioLogadoNormalizado = normalizeTurmaChar(usuarioLogado); if (tipoUsuario === 'gestor') { allowedTurmas = turmasDisponiveis.map(t => normalizeTurmaChar(t.name)); } else { const monitor = monitoresDisponiveis.find(m => normalizeTurmaChar(m.name) === usuarioLogadoNormalizado); if (monitor) { allowedTurmas = monitor.turmas.map(t => normalizeTurmaChar(t)); } } return allowedTurmas; }, [usuarioLogado, tipoUsuario]);
-  
+
   // <<< ALTERAÇÃO 1: O bloco que selecionava a primeira turma automaticamente foi REMOVIDO daqui.
   /*
-  useEffect(() => { 
-    const classes = turmasPermitidas(); 
-    if (classes.length > 0 && !turmaSelecionada) { 
-        setTurmaSelecionada(classes[0]); 
-    } 
+  useEffect(() => {
+    const classes = turmasPermitidas();
+    if (classes.length > 0 && !turmaSelecionada) {
+        setTurmaSelecionada(classes[0]);
+    }
   }, [turmasPermitidas, turmaSelecionada]);
   */
 
@@ -200,7 +278,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
     document.addEventListener("mousedown", handleClickOutsidePhotoViewer);
     return () => document.removeEventListener("mousedown", handleClickOutsidePhotoViewer);
   }, [photoViewerRef]);
-  
+
   // <<< ALTERAÇÃO 2: A lógica de filtragem foi atualizada.
   // Dados filtrados para a TABELA e para GraficoFaltas/outros relatórios (APENAS ALUNOS ATIVOS)
   const registrosFiltradosParaTabelaEOutros = useMemo(() => {
@@ -209,9 +287,9 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
         return [];
     }
     return registros
-      .filter(a => { 
+      .filter(a => {
         // Apenas alunos ATIVOS são exibidos na tabela principal e em outros gráficos/relatórios
-        if (a.ativo === false) return false; 
+        if (a.ativo === false) return false;
 
         const turmasDoUsuario = turmasPermitidas();
         const turmaAlunoNormalizada = normalizeTurmaChar(a.turma);
@@ -224,7 +302,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
 
         return pertence && turmaOk && buscaTabelaOk;
       })
-      .sort((a, b) => a.nome.localeCompare(b.nome)); 
+      .sort((a, b) => a.nome.localeCompare(b.nome));
   }, [registros, turmaSelecionada, termoBuscaTabela, turmasPermitidas]);
 
   // NOVIDADE FIRESTORE: A função atualizarAlunoRegistro agora interage com o Firestore
@@ -232,11 +310,11 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
     try {
       const alunoDocRef = doc(db, 'alunos', alunoId);
       // Remove o ID do objeto antes de salvar/atualizar, pois o ID já é o nome do documento
-      const { id, ...dadosParaSalvar } = alunoAtualizado; 
+      const { id, ...dadosParaSalvar } = alunoAtualizado;
       await setDoc(alunoDocRef, dadosParaSalvar, { merge: true }); // merge: true para atualizar campos existentes
-      
+
       // A atualização do estado local é feita automaticamente pelo onSnapshot listener
-      // setRegistros(prevRegistros => 
+      // setRegistros(prevRegistros =>
       //  prevRegistros.map(aluno => aluno.id === alunoId ? { ...aluno, ...alunoAtualizado } : aluno)
       // );
       console.log("Aluno atualizado no Firestore com sucesso:", alunoId);
@@ -312,7 +390,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
     });
     return contadorAtrasos;
   }, [registros, dataInicio, dataFim]);
-  
+
   // NOVIDADE FIRESTORE: handleCadastrarAluno agora salva no Firestore
   const handleCadastrarAluno = useCallback(async (e) => {
     e.preventDefault();
@@ -345,7 +423,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
     try {
       const docRef = doc(collection(db, 'alunos')); // Cria uma nova referência de documento com ID automático
       await setDoc(docRef, novoRegistroData); // Salva os dados do novo aluno no Firestore
-      
+
       // Atualiza o estado local com o novo aluno, incluindo o ID do Firestore
       setRegistros(prev => [...prev, { id: docRef.id, ...novoRegistroData }]);
       setAlunoParaCadastro({ nome: '', turma: '', contato: '', responsavel: '', monitor: '', faltasAnteriores: 0 }); // Limpa o formulário
@@ -358,25 +436,25 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
 
   // NOVIDADE FIRESTORE: handleExcluirAluno agora atualiza o status 'ativo' no Firestore
   const handleExcluirAluno = useCallback(async (alunoParaExcluir) => { // Recebe o objeto aluno completo
-    if (window.confirm("Tem certeza que deseja EXCLUIR este(a) aluno(a)? Ele(a) será removido(a) da lista principal, mas suas faltas e atrasos ANTERIORES continuarão nos relatórios GERAIS (como o Gráfico Semanal).")) { 
+    if (window.confirm("Tem certeza que deseja EXCLUIR este(a) aluno(a)? Ele(a) será removido(a) da lista principal, mas suas faltas e atrasos ANTERIORES continuarão nos relatórios GERAIS (como o Gráfico Semanal).")) {
       try {
         const alunoDocRef = doc(db, 'alunos', alunoParaExcluir.id); // Pega a referência pelo ID do aluno
         await updateDoc(alunoDocRef, { ativo: false }); // Atualiza apenas o campo 'ativo'
-        
+
         // Atualiza o estado local para refletir a mudança
-        setRegistros(prevRegistros => prevRegistros.map(aluno => 
+        setRegistros(prevRegistros => prevRegistros.map(aluno =>
           aluno.id === alunoParaExcluir.id ? { ...aluno, ativo: false } : aluno
         ));
-        alert('Aluno(a) excluído(a) da exibição principal com sucesso! Dados históricos gerais preservados.'); 
+        alert('Aluno(a) excluído(a) da exibição principal com sucesso! Dados históricos gerais preservados.');
       } catch (error) {
         console.error("Erro ao excluir aluno do Firestore:", error);
         alert("Erro ao excluir aluno.");
       }
-    } 
+    }
   }, []);
 
   // NOVIDADE FIRESTORE: salvarEdicao agora atualiza no Firestore
-  const salvarEdicao = useCallback(async () => { 
+  const salvarEdicao = useCallback(async () => {
     // Garante que estamos editando um aluno existente com ID
     if (!editandoAluno || !novoAluno.id) { // Agora editandoAluno é o ID do aluno
       console.error("Erro: Aluno em edição ou ID ausente.");
@@ -387,9 +465,9 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
       const alunoDocRef = doc(db, 'alunos', novoAluno.id);
       const { id, ...dadosParaSalvar } = novoAluno; // Remove o ID para não tentar salvá-lo como campo
       await setDoc(alunoDocRef, dadosParaSalvar, { merge: true }); // merge: true para atualizar campos existentes
-      
+
       // Atualiza o estado local após o sucesso no Firestore
-      setRegistros(prevRegistros => 
+      setRegistros(prevRegistros =>
         prevRegistros.map(aluno => aluno.id === novoAluno.id ? { ...aluno, ...novoAluno } : aluno)
       );
       setEditandoAluno(null);
@@ -401,12 +479,12 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
   }, [editandoAluno, novoAluno]);
 
   // NOVIDADE FIRESTORE: justificarTodos agora atualiza no Firestore (usando batch)
-  const justificarTodos = useCallback(async () => { 
-    const motivo = prompt("Digite a justificativa para todos os(as) alunos(as) filtrados(as):"); 
-    if (motivo) { 
+  const justificarTodos = useCallback(async () => {
+    const motivo = prompt("Digite a justificativa para todos os(as) alunos(as) filtrados(as):");
+    if (motivo) {
       // Pega apenas os alunos ativos filtrados para atualização
-      const alunosParaAtualizar = registrosFiltradosParaTabelaEOutros.filter(r => r.ativo); 
-      
+      const alunosParaAtualizar = registrosFiltradosParaTabelaEOutros.filter(r => r.ativo);
+
       try {
         const batchInstance = writeBatch(db);
 
@@ -431,16 +509,16 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
         console.error("Erro ao justificar todos no Firestore:", error);
         alert("Erro ao justificar faltas.");
       }
-    } 
+    }
   }, [dataSelecionada, usuarioLogado, turmasPermitidas, registrosFiltradosParaTabelaEOutros]);
 
 
   // NOVIDADE FIRESTORE: reiniciarAlertas agora atualiza no Firestore (usando batch)
-  const reiniciarAlertas = useCallback(async () => { 
-    if (tipoUsuario !== 'gestor') { alert("Apenas gestores podem reiniciar os alertas."); return; } 
-    const senhaDigitada = prompt("Para reiniciar todos os alertas, por favor, digite a sua senha de gestor:"); 
-    if (senhaDigitada === senhaUsuario) { 
-      if (window.confirm("Senha correta! Tem certeza que deseja reiniciar TODAS as justificativas e observações? Esta ação é irreversível.")) { 
+  const reiniciarAlertas = useCallback(async () => {
+    if (tipoUsuario !== 'gestor') { alert("Apenas gestores podem reiniciar os alertas."); return; }
+    const senhaDigitada = prompt("Para reiniciar todos os alertas, por favor, digite a sua senha de gestor:");
+    if (senhaDigitada === senhaUsuario) {
+      if (window.confirm("Senha correta! Tem certeza que deseja reiniciar TODAS as justificativas e observações? Esta ação é irreversível.")) {
         try {
           const batchInstance = writeBatch(db);
           const alunosCollectionRef = collection(db, 'alunos');
@@ -455,111 +533,166 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
 
           // Atualiza o estado local após o commit do batch
           setRegistros(prev => prev.map(aluno => ({...aluno, justificativas: {}, observacoes: {}, ativo: true, fotoUrl: ''}))); // NOVIDADE FOTO: Limpa fotoUrl também
-          alert("Alertas reiniciados no Firestore com sucesso!"); 
+          alert("Alertas reiniciados no Firestore com sucesso!");
         } catch (error) {
           console.error("Erro ao reiniciar alertas no Firestore:", error);
           alert("Erro ao reiniciar alertas.");
         }
-      } 
-    } else if (senhaDigitada !== null) { alert("Senha incorreta. Reinício cancelado."); } 
+      }
+    } else if (senhaDigitada !== null) { alert("Senha incorreta. Reinício cancelado."); }
   }, [tipoUsuario, senhaUsuario]);
 
   // NOVIDADE FIRESTORE: handleSaveObservations agora atualiza no Firestore
-  const handleSaveObservations = useCallback(async () => { 
+  const handleSaveObservations = useCallback(async () => {
     if (!currentAlunoForObservation || !currentAlunoForObservation.id) {
-        console.error("Erro: Aluno para observação ou ID ausente.");
-        alert("Erro: Não foi possível salvar as observações. Aluno ou ID ausente.");
-        return;
-    } 
-    const finalObservationsArray = Array.from(tempSelectedObservations); 
-    if (tempSelectedObservations.has("Outros") && otherObservationText.trim() !== '') { 
-      const indexOutros = finalObservationsArray.indexOf("Outros"); 
-      if (indexOutros > -1) { finalObservationsArray.splice(indexOutros, 1); } 
-      finalObservationsArray.push(`Outros: ${otherObservationText.trim()}`); 
-    } else if (tempSelectedObservations.has("Outros") && otherObservationText.trim() === '') { 
-      const newSet = new Set(tempSelectedObservations); 
-      newSet.delete("Outros"); 
+      console.error("Erro: Aluno para observação ou ID ausente.");
+      alert("Erro: Não foi possível salvar as observações. Aluno ou ID ausente.");
+      return;
+    }
+    const finalObservationsArray = Array.from(tempSelectedObservations);
+    if (tempSelectedObservations.has("Outros") && otherObservationText.trim() !== '') {
+      const indexOutros = finalObservationsArray.indexOf("Outros");
+      if (indexOutros > -1) { finalObservationsArray.splice(indexOutros, 1); }
+      finalObservationsArray.push(`Outros: ${otherObservationText.trim()}`);
+    } else if (tempSelectedObservations.has("Outros") && otherObservationText.trim() === '') {
+      const newSet = new Set(tempSelectedObservations);
+      newSet.delete("Outros");
       setTempSelectedObservations(newSet); // Atualiza o estado do dropdown
-      const indexOutros = finalObservationsArray.indexOf("Outros"); 
-      if (indexOutros > -1) { finalObservationsArray.splice(indexOutros, 1); } 
-    } 
-    
-    const chaveObservacao = `${currentAlunoForObservation.nome}_${normalizeTurmaChar(currentAlunoForObservation.turma)}_${dataSelecionada}`; 
+      const indexOutros = finalObservationsArray.indexOf("Outros");
+      if (indexOutros > -1) { finalObservationsArray.splice(indexOutros, 1); }
+    }
+
+    const chaveObservacao = `${currentAlunoForObservation.nome}_${normalizeTurmaChar(currentAlunoForObservation.turma)}_${dataSelecionada}`;
     const updatedObservations = { ...currentAlunoForObservation.observacoes, [chaveObservacao]: finalObservationsArray.length > 0 ? finalObservationsArray : [] };
-    
+
     try {
       const alunoDocRef = doc(db, 'alunos', currentAlunoForObservation.id);
       await updateDoc(alunoDocRef, { observacoes: updatedObservations });
 
       // Atualiza o estado local
-      setRegistros(prevRegistros => prevRegistros.map(aluno => 
+      setRegistros(prevRegistros => prevRegistros.map(aluno =>
         aluno.id === currentAlunoForObservation.id ? { ...aluno, observacoes: updatedObservations } : aluno
       ));
       alert("Observações salvas no Firestore com sucesso!");
-      closeObservationDropdown(); 
+      closeObservationDropdown();
     } catch (error) {
       console.error("Erro ao salvar observações no Firestore:", error);
       alert("Erro ao salvar observações.");
     }
   }, [currentAlunoForObservation, tempSelectedObservations, otherObservationText, dataSelecionada, closeObservationDropdown]);
 
-  const enviarWhatsapp = useCallback((aluno) => { const [ano, mes, dia] = dataSelecionada.split('-').map(Number); const dataObj = new Date(ano, mes - 1, dia); const diasSemana = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado']; const diaSemana = dataObj.getDay(); const dataFormatada = formatarData(dataSelecionada); const texto = `Olá, ${aluno.responsavel}, informamos que ${aluno.nome} (${normalizeTurmaChar(aluno.turma)}) esteve ausente na escola em ${dataFormatada} (${diasSemana[diaSemana]}). Por favor, justificar a ausência.\n\nLembramos que faltas não justificadas podem resultar em notificações formais, conforme as diretrizes educacionais.\n\nAguardamos seu retorno.\n\nAtenciosamente,\nMonitor(a) ${usuarioLogado}\nEscola Cívico-Militar Profª Ana Maria das Graças de Souza Noronha`; const link = `https://wa.me/55${aluno.contato.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(texto)}`; window.open(link, '_blank'); }, [dataSelecionada, usuarioLogado]);
-  
-  // MODIFICADO: exportarPeriodo agora aceita um flag para exportar todas as turmas
-  const exportarPeriodo = useCallback((exportAllClasses = false) => { 
-    if (!dataInicio || !dataFim) return alert('Selecione o período completo!'); 
-    
-    const doc = new jsPDF(); 
-    const pageWidth = doc.internal.pageSize.getWidth(); 
-    const schoolName = `ESCOLA ESTADUAL CÍVICO-MILITAR PROFESSORA ANA MARIA DAS GRAÇAS DE SOUZA NORONHA`; 
-    const logoUrl = '/logo-escola.png'; // Garanta que este arquivo esteja na pasta /public
-    let yOffset = 10; 
+  const enviarWhatsapp = useCallback((aluno) => { const [ano, mes, dia] = dataSelecionada.split('-').map(Number); const dataObj = new Date(ano, mes - 1, dia); const diasSemana = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado']; const diaSemana = dataObj.getDay(); const dataFormatada = formatarData(dataSelecionada); const texto = `Olá, ${aluno.responsavel}, informamos que ${aluno.nome} (${normalizeTurmaChar(aluno.turma)}) esteve ausente na escola, na data de hoje ${dataFormatada} (${diasSemana[diaSemana]}). Por favor, justificar a ausência.\n\nLembramos que faltas não justificadas podem resultar em notificações formais, conforme as diretrizes educacionais.\n\nAguardamos seu retorno.\n\nAtenciosamente,\nMonitor(a) ${usuarioLogado}\nEscola Cívico-Militar Profª Ana Maria das Graças de Souza Noronha`; const link = `https://wa.me/55${aluno.contato.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(texto)}`; window.open(link, '_blank'); }, [dataSelecionada, usuarioLogado]);
 
-    const addContentToDoc = () => { 
-      doc.setFontSize(10); 
+  // --- NOVA FUNÇÃO: ENVIAR MENSAGEM DE OBSERVAÇÃO VIA WHATSAPP ---
+  const handleSendObservationWhatsApp = useCallback(() => {
+    if (!currentAlunoForObservation || !currentAlunoForObservation.contato) {
+      alert("Aluno ou contato do responsável não disponível para enviar mensagem.");
+      return;
+    }
+    if (tempSelectedObservations.size === 0 && otherObservationText.trim() === '') {
+      alert("Nenhuma observação selecionada para enviar.");
+      return;
+    }
+
+    const aluno = currentAlunoForObservation;
+    const dataAtualFormatada = formatarData(dataSelecionada);
+    const monitorNome = usuarioLogado;
+    const alunoTurmaNormalizada = normalizeTurmaChar(aluno.turma);
+
+    const messageParts = [];
+
+    // Cabeçalho da Mensagem
+    messageParts.push(`Olá, ${aluno.responsavel}!
+Gostaríamos de informar que, na data de hoje ${dataAtualFormatada}, foram registradas as seguintes observações sobre o(a) ${aluno.nome} (${normalizeTurmaChar(aluno.turma)}):`);
+
+    // Lista de Observações
+    Array.from(tempSelectedObservations).forEach(obsKey => {
+      if (obsKey === "Outros") {
+        if (otherObservationText.trim() !== '') {
+          const outrosMessage = observationMessages["Outros"].getBody(otherObservationText.trim());
+          messageParts.push(`- ${observationMessages["Outros"].title} ${outrosMessage}`);
+        }
+      } else {
+        const obsTemplate = observationMessages[obsKey];
+        if (obsTemplate) {
+          const body = obsTemplate.getBody(aluno); // Passa o aluno para a função getBody
+          messageParts.push(`- ${obsTemplate.title} ${body}`);
+        }
+      }
+    });
+
+    // Rodapé da Mensagem
+    messageParts.push(`Contamos com a colaboração da família no acompanhamento e orientação do(a) estudante quanto à observância das normas escolares.
+
+Agradecemos a atenção e o apoio de vocês.
+
+Atenciosamente,
+Monitor ${monitorNome}
+EECIM Professora Ana Maria das Graças de Souza Noronha`);
+
+    const fullMessage = messageParts.join('\n\n'); // Junta as partes com duas quebras de linha para parágrafos
+
+    const link = `https://wa.me/55${aluno.contato.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(fullMessage)}`;
+    window.open(link, '_blank');
+    closeObservationDropdown(); // Fecha o dropdown após enviar
+  }, [currentAlunoForObservation, tempSelectedObservations, otherObservationText, dataSelecionada, usuarioLogado, closeObservationDropdown]);
+
+
+  // MODIFICADO: exportarPeriodo agora aceita um flag para exportar todas as turmas
+  const exportarPeriodo = useCallback((exportAllClasses = false) => {
+    if (!dataInicio || !dataFim) return alert('Selecione o período completo!');
+
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const schoolName = `ESCOLA ESTADUAL CÍVICO-MILITAR PROFESSORA ANA MARIA DAS GRAÇAS DE SOUZA NORONHA`;
+    const logoUrl = '/logo-escola.png'; // Garanta que este arquivo esteja na pasta /public
+    let yOffset = 10;
+
+    const addContentToDoc = () => {
+      doc.setFontSize(10);
       let reportTitle = `Relatório por Período (${formatarData(dataInicio)} a ${formatarData(dataFim)}) - ${tipoUsuario} ${usuarioLogado}`;
       if (exportAllClasses) {
         reportTitle += ' - TODAS AS TURMAS';
       } else {
         reportTitle += ` - Turma: ${turmaSelecionada}`;
       }
-      doc.text(reportTitle, pageWidth / 2, yOffset, { align: 'center' }); 
-      yOffset += 10; 
-      
+      doc.text(reportTitle, pageWidth / 2, yOffset, { align: 'center' });
+      yOffset += 10;
+
       // NOVIDADE AQUI: Coletar e classificar as entradas antes de gerar a tabela
       const allPeriodEntries = []; // Array para armazenar as entradas com dados para classificação
-      
+
       // Define os registros a serem usados: todos se exportAllClasses for true, senão os filtrados
       const registrosParaExportar = exportAllClasses ? registros : registrosFiltradosParaTabelaEOutros;
 
-      registrosParaExportar.filter(a => a.ativo).forEach((aluno) => { 
-        if (!aluno.justificativas) return; 
+      registrosParaExportar.filter(a => a.ativo).forEach((aluno) => {
+        if (!aluno.justificativas) return;
 
-        Object.entries(aluno.justificativas).forEach(([chave, justificativa]) => { 
-          const partes = chave.split('_'); 
+        Object.entries(aluno.justificativas).forEach(([chave, justificativa]) => {
+          const partes = chave.split('_');
           const data = partes[2]; // Formato YYYY-MM-DD para fácil comparação
-          const turmaAlunoNormalizada = normalizeTurmaChar(aluno.turma); 
+          const turmaAlunoNormalizada = normalizeTurmaChar(aluno.turma);
 
           // Se for para exportar todas as turmas, verifica se o monitor logado tem permissão para ver essa turma
           // Senão, filtra pela turma selecionada (que já respeita a permissão do monitor)
           const turmasDoUsuario = turmasPermitidas(); // Pega as turmas que o usuário logado pode ver
-          const shouldIncludeAluno = exportAllClasses 
-                                     ? turmasDoUsuario.includes(turmaAlunoNormalizada) 
+          const shouldIncludeAluno = exportAllClasses
+                                     ? turmasDoUsuario.includes(turmaAlunoNormalizada)
                                      : (turmaAlunoNormalizada === normalizeTurmaChar(turmaSelecionada));
-          
-          if (data >= dataInicio && data <= dataFim && shouldIncludeAluno) { 
+
+          if (data >= dataInicio && data <= dataFim && shouldIncludeAluno) {
             allPeriodEntries.push({
-              nome: aluno.nome, 
-              turma: turmaAlunoNormalizada, 
-              contato: aluno.contato || '', 
-              responsavel: aluno.responsavel || '', 
-              justificativa: justificativa, 
+              nome: aluno.nome,
+              turma: turmaAlunoNormalizada,
+              contato: aluno.contato || '',
+              responsavel: aluno.responsavel || '',
+              justificativa: justificativa,
               data: data, // Usamos a data no formato YYYY-MM-DD para classificação
-              monitor: aluno.monitor || '' 
-            }); 
-          } 
-        }); 
-      }); 
+              monitor: aluno.monitor || ''
+            });
+          }
+        });
+      });
 
       // NOVIDADE AQUI: Classificar as entradas
       allPeriodEntries.sort((a, b) => {
@@ -586,45 +719,45 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
         entry.monitor
       ]);
 
-      autoTable(doc, { 
-        startY: yOffset, 
-        head: [['Nome', 'Turma', 'Contato', 'Responsável', 'Justificativa', 'Data', 'Monitor(a)']], 
+      autoTable(doc, {
+        startY: yOffset,
+        head: [['Nome', 'Turma', 'Contato', 'Responsável', 'Justificativa', 'Data', 'Monitor(a)']],
         body: periodoFormattedForTable, // Usamos o array classificado e formatado
-        styles: { fontSize: 8, halign: 'center' }, 
-        headStyles: { fillColor: [37, 99, 235], halign: 'center' }, 
-      }); 
+        styles: { fontSize: 8, halign: 'center' },
+        headStyles: { fillColor: [37, 99, 235], halign: 'center' },
+      });
 
-      const fileName = exportAllClasses 
-                               ? `faltas_todas_turmas_${dataInicio}_a_${dataFim}.pdf` 
-                               : `faltas_turma_${normalizeTurmaChar(turmaSelecionada)}_${dataInicio}_a_${dataFim}.pdf`; // Nome do arquivo para turma selecionada
-      doc.save(fileName); 
+      const fileName = exportAllClasses
+                                     ? `faltas_todas_turmas_${dataInicio}_a_${dataFim}.pdf`
+                                     : `faltas_turma_${normalizeTurmaChar(turmaSelecionada)}_${dataInicio}_a_${dataFim}.pdf`; // Nome do arquivo para turma selecionada
+      doc.save(fileName);
       setShowExportOptions(false); // Esconde as opções após a exportação
-    }; 
+    };
 
-    const img = new Image(); 
-    img.src = logoUrl; 
-    img.crossOrigin = "Anonymous"; 
+    const img = new Image();
+    img.src = logoUrl;
+    img.crossOrigin = "Anonymous";
 
-    img.onload = () => { 
-      const logoWidth = 20; 
-      const logoHeight = (img.height * logoWidth) / img.width; 
-      const xLogo = (pageWidth - logoWidth) / 2; 
-      doc.addImage(img, 'PNG', xLogo, yOffset, logoWidth, logoHeight); 
-      yOffset += logoHeight + 5; 
-      doc.setFontSize(9); 
-      doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' }); 
-      yOffset += 10; 
-      addContentToDoc(); 
-    }; 
+    img.onload = () => {
+      const logoWidth = 20;
+      const logoHeight = (img.height * logoWidth) / img.width;
+      const xLogo = (pageWidth - logoWidth) / 2;
+      doc.addImage(img, 'PNG', xLogo, yOffset, logoWidth, logoHeight);
+      yOffset += logoHeight + 5;
+      doc.setFontSize(9);
+      doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' });
+      yOffset += 10;
+      addContentToDoc();
+    };
 
-    img.onerror = () => { 
-      console.error("Erro ao carregar a logo. Gerando PDF sem a imagem."); 
-      doc.setFontSize(12); 
-      doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' }); 
-      yOffset += 15; 
-      addContentToDoc(); 
-    }; 
-  }, [dataInicio, dataFim, usuarioLogado, tipoUsuario, registros, turmasPermitidas, registrosFiltradosParaTabelaEOutros, turmaSelecionada]); 
+    img.onerror = () => {
+      console.error("Erro ao carregar a logo. Gerando PDF sem a imagem.");
+      doc.setFontSize(12);
+      doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' });
+      yOffset += 15;
+      addContentToDoc();
+    };
+  }, [dataInicio, dataFim, usuarioLogado, tipoUsuario, registros, turmasPermitidas, registrosFiltradosParaTabelaEOutros, turmaSelecionada]);
 
   // REMOVIDO: exportGraficoFaltasPDF foi movido para GraficoFaltas.js
   /*
@@ -771,46 +904,46 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
   }, [mostrarGraficoSemanal, dataInicio, dataFim, formatarData]); // Dependências da função
 
   // NOVIDADE FIRESTORE: editarAluno agora usa o ID do aluno
-  const editarAluno = useCallback((alunoOriginal) => { 
+  const editarAluno = useCallback((alunoOriginal) => {
     setNovoAluno(alunoOriginal); // Define o aluno a ser editado
     // Usa o ID do Firestore como chave de edição se existir, senão o originalIndex
-    setEditandoAluno(alunoOriginal.id || alunoOriginal.originalIndex); 
+    setEditandoAluno(alunoOriginal.id || alunoOriginal.originalIndex);
   }, []);
 
   // NOVIDADE FIRESTORE: handleOpenObservationDropdown agora usa o ID do aluno
   const handleOpenObservationDropdown = useCallback((aluno, event) => { // Removido o 'index'
-    if (isObservationDropdownOpen && currentAlunoForObservation && currentAlunoForObservation.id === aluno.id) { closeObservationDropdown(); return; } 
-    const rect = event.currentTarget.getBoundingClientRect(); 
+    if (isObservationDropdownOpen && currentAlunoForObservation && currentAlunoForObservation.id === aluno.id) { closeObservationDropdown(); return; }
+    const rect = event.currentTarget.getBoundingClientRect();
     // Captura a posição do botão clicado
-    setButtonPosition({ 
-        top: rect.top + window.scrollY, 
-        left: rect.left + window.scrollX, 
-        width: rect.width, 
-        height: rect.height 
+    setButtonPosition({
+        top: rect.top + window.scrollY,
+        left: rect.left + window.scrollX,
+        width: rect.width,
+        height: rect.height
     });
-    
+
     setCurrentAlunoForObservation(aluno);
     setIsObservationDropdownOpen(true); // Abre o dropdown
-    
-    const chaveObservacao = `${aluno.nome}_${normalizeTurmaChar(aluno.turma)}_${dataSelecionada}`; 
-    const existingObservations = aluno.observacoes?.[chaveObservacao] || []; 
-    const existingObservationsArray = Array.isArray(existingObservations) ? existingObservations : (existingObservations ? [existingObservations] : []); 
-    
-    const initialSet = new Set(); 
-    let initialOtherText = ''; 
-    
-    existingObservationsArray.forEach(obs => { 
-        if (obs.startsWith("Outros: ")) { 
-            initialOtherText = obs.replace("Outros: ", ""); 
-            initialSet.add("Outros"); 
-        } else { 
-            initialSet.add(obs); 
-        } 
-    }); 
-    setTempSelectedObservations(initialSet); 
-    setOtherObservationText(initialOtherText); 
+
+    const chaveObservacao = `${aluno.nome}_${normalizeTurmaChar(aluno.turma)}_${dataSelecionada}`;
+    const existingObservations = aluno.observacoes?.[chaveObservacao] || [];
+    const existingObservationsArray = Array.isArray(existingObservations) ? existingObservations : (existingObservations ? [existingObservations] : []);
+
+    const initialSet = new Set();
+    let initialOtherText = '';
+
+    existingObservationsArray.forEach(obs => {
+        if (obs.startsWith("Outros: ")) {
+            initialOtherText = obs.replace("Outros: ", "");
+            initialSet.add("Outros");
+        } else {
+            initialSet.add(obs);
+        }
+    });
+    setTempSelectedObservations(initialSet);
+    setOtherObservationText(initialOtherText);
   }, [isObservationDropdownOpen, currentAlunoForObservation, dataSelecionada, closeObservationDropdown]);
-  
+
   // NOVO useEffect para calcular a posição do dropdown APÓS ele ser renderizado
   useEffect(() => {
     if (isObservationDropdownOpen && dropdownRef.current) {
@@ -820,9 +953,9 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
 
       // Atualiza a posição do botão para a posição final do dropdown
       // (Isso fará com que o dropdown seja renderizado na posição correta na próxima atualização do estado)
-      setButtonPosition(prev => ({ 
-          ...prev, 
-          top: finalTop, 
+      setButtonPosition(prev => ({
+          ...prev,
+          top: finalTop,
           left: prev.left // Mantém o left original do botão
       }));
     }
@@ -830,12 +963,12 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
 
   const handleCheckboxChange = useCallback((option) => { setTempSelectedObservations(prev => { const newSet = new Set(prev); if (newSet.has(option)) { newSet.delete(option); } else { newSet.add(option); } return newSet; }); if (option === "Outros" && tempSelectedObservations.has("Outros")) { setOtherObservationText(''); } }, [tempSelectedObservations]);
   const handleOtherTextChange = useCallback((e) => { const text = e.target.value; setOtherObservationText(text); if (text.trim() !== '' && !tempSelectedObservations.has("Outros")) { setTempSelectedObservations(prev => new Set(prev).add("Outros")); } else if (text.trim() === '' && tempSelectedObservations.has("Outros")) { const newSet = new Set(tempSelectedObservations); newSet.delete("Outros"); setTempSelectedObservations(newSet); } }, [tempSelectedObservations]);
-  const calculateCompleteReport = useCallback((aluno) => { if (!aluno) return null; const today = getTodayDateString(); const startDate = REPORT_START_DATE; const start = new Date(startDate); const end = new Date(today); let actualDaysInPeriod = 0; for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) { const dayOfWeek = d.getDay(); if (dayOfWeek !== 0 && dayOfWeek !== 6) { actualDaysInPeriod++; } } if (actualDaysInPeriod === 0) actualDaysInPeriod = 1; let faltasAluno = 0; const alunoJustificativas = aluno.justificativas || {}; const justificativasNoPeriodo = []; Object.entries(alunoJustificativas).forEach(([chave, justificativa]) => { const partes = chave.split('_'); const data = partes[2]; if (data >= startDate && data <= today && justificativa && justificativa !== "Selecione") { faltasAluno++; justificativasNoPeriodo.push({ data: formatarData(data), justificativa: justificativa.startsWith("Outros: ") ? justificativa.substring(8) : justificativa, }); } }); const totalDiasLetivos = aluno.totalDiasLetivos || 100; const porcentagemAluno = ((faltasAluno / totalDiasLetivos) * 100).toFixed(2); let faltasTurma = 0; let totalAlunosNaTurma = new Set(); 
+  const calculateCompleteReport = useCallback((aluno) => { if (!aluno) return null; const today = getTodayDateString(); const startDate = REPORT_START_DATE; const start = new Date(startDate); const end = new Date(today); let actualDaysInPeriod = 0; for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) { const dayOfWeek = d.getDay(); if (dayOfWeek !== 0 && dayOfWeek !== 6) { actualDaysInPeriod++; } } if (actualDaysInPeriod === 0) actualDaysInPeriod = 1; let faltasAluno = 0; const alunoJustificativas = aluno.justificativas || {}; const justificativasNoPeriodo = []; Object.entries(alunoJustificativas).forEach(([chave, justificativa]) => { const partes = chave.split('_'); const data = partes[2]; if (data >= startDate && data <= today && justificativa && justificativa !== "Selecione") { faltasAluno++; justificativasNoPeriodo.push({ data: formatarData(data), justificativa: justificativa.startsWith("Outros: ") ? justificativa.substring(8) : justificativa, }); } }); const totalDiasLetivos = aluno.totalDiasLetivos || 100; const porcentagemAluno = ((faltasAluno / totalDiasLetivos) * 100).toFixed(2); let faltasTurma = 0; let totalAlunosNaTurma = new Set();
     // NOVIDADE: Para o relatório completo, consideramos apenas os alunos ATIVOS para as médias comparativas da turma/escola.
-    registros.filter(a => a.ativo).forEach(r => { if (normalizeTurmaChar(r.turma) === normalizeTurmaChar(aluno.turma)) { totalAlunosNaTurma.add(r.nome); const rJustificativas = r.justificativas || {}; Object.entries(rJustificativas).forEach(([chave, justificativa]) => { const partes = chave.split('_'); const data = partes[2]; if (data >= startDate && data <= today && justificativa !== "") { faltasTurma++; } }); } }); const numAlunosNaTurma = totalAlunosNaTurma.size > 0 ? totalAlunosNaTurma.size : 1; const totalDiasLetivosTurma = numAlunosNaTurma * actualDaysInPeriod; const porcentagemTurma = totalDiasLetivosTurma > 0 ? ((faltasTurma / totalDiasLetivosTurma) * 100).toFixed(2) : 0; let faltasEscola = 0; let totalAlunosNaEscola = new Set(); 
+    registros.filter(a => a.ativo).forEach(r => { if (normalizeTurmaChar(r.turma) === normalizeTurmaChar(aluno.turma)) { totalAlunosNaTurma.add(r.nome); const rJustificativas = r.justificativas || {}; Object.entries(rJustificativas).forEach(([chave, justificativa]) => { const partes = chave.split('_'); const data = partes[2]; if (data >= startDate && data <= today && justificativa !== "") { faltasTurma++; } }); } }); const numAlunosNaTurma = totalAlunosNaTurma.size > 0 ? totalAlunosNaTurma.size : 1; const totalDiasLetivosTurma = numAlunosNaTurma * actualDaysInPeriod; const porcentagemTurma = totalDiasLetivosTurma > 0 ? ((faltasTurma / totalDiasLetivosTurma) * 100).toFixed(2) : 0; let faltasEscola = 0; let totalAlunosNaEscola = new Set();
     registros.filter(a => a.ativo).forEach(r => { totalAlunosNaEscola.add(r.nome); const rJustificativas = r.justificativas || {}; Object.entries(rJustificativas).forEach(([chave, justificativa]) => { const partes = chave.split('_'); const data = partes[2]; if (data >= startDate && data <= today && justificativa !== "") { faltasEscola++; } }); }); const numAlunosNaEscola = totalAlunosNaEscola.size > 0 ? totalAlunosNaEscola.size : 1; const totalDiasLetivosEscola = numAlunosNaEscola * actualDaysInPeriod; const porcentagemEscola = totalDiasLetivosEscola > 0 ? ((faltasEscola / totalDiasLetivosEscola) * 100).toFixed(2) : 0; const observacoesAlunoNoPeriodo = []; Object.entries(aluno.observacoes || {}).forEach(([chave, obsArray]) => { const partes = chave.split('_'); const dataObs = partes[2]; if (dataObs >= startDate && dataObs <= today && Array.isArray(obsArray) && obsArray.length > 0) { observacoesAlunoNoPeriodo.push({ data: formatarData(dataObs), observacoes: obsArray.join('; ') }); } }); return { aluno, periodo: `${formatarData(startDate)} a ${formatarData(today)}`, diasLetivosNoPeriodo: actualDaysInPeriod, faltasAluno, porcentagemAluno, faltasTurma, porcentagemTurma, faltasEscola, porcentagemEscola, observacoesAlunoNoPeriodo, justificativasNoPeriodo }; }, [registros]);
   const handleAbrirRelatorioAluno = useCallback((aluno) => { const reportData = calculateCompleteReport(aluno); setCompleteReportData(reportData); setSelectedStudentForReport(aluno); setShowCompleteReportModal(true); }, [calculateCompleteReport]);
-  const exportCompleteReportPDF = useCallback(() => { if (!completeReportData) { alert('Não há dados de relatório para exportar.'); return; } const doc = new jsPDF(); const pageWidth = doc.internal.pageSize.getWidth(); const schoolName = `ESCOLA ESTADUAL CÍVICO-MILITAR PROFESSORA ANA MARIA DAS GRAÇAS DE SOUZA NORONHA`; const logoUrl = '/logo-escola.png'; let yOffset = 10; const addContentToDoc = () => { doc.setFontSize(14); doc.text(`Relatório do(a) Aluno(a): ${completeReportData.aluno.nome}`, pageWidth / 2, yOffset, { align: 'center' }); yOffset += 10; 
+  const exportCompleteReportPDF = useCallback(() => { if (!completeReportData) { alert('Não há dados de relatório para exportar.'); return; } const doc = new jsPDF(); const pageWidth = doc.internal.pageSize.getWidth(); const schoolName = `ESCOLA ESTADUAL CÍVICO-MILITAR PROFESSORA ANA MARIA DAS GRAÇAS DE SOUZA NORONHA`; const logoUrl = '/logo-escola.png'; let yOffset = 10; const addContentToDoc = () => { doc.setFontSize(14); doc.text(`Relatório do(a) Aluno(a): ${completeReportData.aluno.nome}`, pageWidth / 2, yOffset, { align: 'center' }); yOffset += 10;
     // NOVIDADE FOTO: Adiciona a foto do aluno ao PDF se existir
     if (completeReportData.aluno.fotoUrl) {
       const img = new Image();
@@ -861,7 +994,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
     function continuePdfContent() {
       doc.setFontSize(10); doc.text(`Período do Relatório: ${completeReportData.periodo}`, 14, yOffset); yOffset += 7; doc.text(`Total de Faltas no Período: ${completeReportData.faltasAluno} (${completeReportData.porcentagemAluno}%)`, 14, yOffset); yOffset += 7; doc.text(`Turma: ${normalizeTurmaChar(completeReportData.aluno.turma)}`, 14, yOffset); yOffset += 7; doc.text(`Contato: ${completeReportData.aluno.contato}`, 14, yOffset); yOffset += 7; doc.text(`Responsável: ${completeReportData.aluno.responsavel}`, 14, yOffset); yOffset += 10; doc.setFontSize(12); doc.text('Métricas Comparativas:', 14, yOffset); yOffset += 7; doc.setFontSize(10); doc.text(`Percentual de Faltas do(a) Aluno(a): ${completeReportData.porcentagemAluno}%`, 14, yOffset); yOffset += 7; doc.text(`Média de Faltas da Turma: ${completeReportData.porcentagemTurma}%`, 14, yOffset); yOffset += 7; doc.text(`Média de Faltas da Escola: ${completeReportData.porcentagemEscola}%`, 14, yOffset); yOffset += 10; let finalY = yOffset; if (completeReportData.justificativasNoPeriodo.length > 0) { doc.setFontSize(12); doc.text('Justificativas de Falta no Período:', 14, finalY); finalY += 5; const jusBody = completeReportData.justificativasNoPeriodo.map(jus => [jus.data, jus.justificativa]); autoTable(doc, { startY: finalY, head: [['Data', 'Justificativa']], body: jusBody, styles: { fontSize: 8 }, headStyles: { fillColor: [37, 99, 235] } }); finalY = doc.lastAutoTable.finalY; } if (completeReportData.observacoesAlunoNoPeriodo.length > 0) { doc.setFontSize(12); doc.text('Observações no Período:', 14, finalY + 10); finalY += 15; const obsBody = completeReportData.observacoesAlunoNoPeriodo.map(obs => [obs.data, obs.observacoes]); autoTable(doc, { startY: finalY, head: [['Data', 'Observações']], body: obsBody, styles: { fontSize: 8 }, headStyles: { fillColor: [37, 99, 235] } }); } doc.save(`relatorio_completo_${completeReportData.aluno.nome.replace(/ /g, '_')}.pdf`);
     }
-  }; 
+  };
   const img = new Image(); img.src = logoUrl; img.crossOrigin = "Anonymous"; img.onload = () => { const logoWidth = 20; const logoHeight = (img.height * logoWidth) / img.width; const xLogo = (pageWidth - logoWidth) / 2; doc.addImage(img, 'PNG', xLogo, yOffset, logoWidth, logoHeight); yOffset += logoHeight + 5; doc.setFontSize(9); doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' }); yOffset += 10; addContentToDoc(); }; img.onerror = () => { console.error("Erro ao carregar a logo. Gerando PDF sem a imagem."); doc.setFontSize(12); doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' }); yOffset += 15; addContentToDoc(); }; }, [completeReportData]);
   const handleAbrirModalRecomposicao = useCallback((aluno) => { setAlunoParaRecompor(aluno); setIsRecomporModalOpen(true); setRecomporDataInicio(''); setRecomporDataFim(''); }, []);
   const handleConfirmarRecomposicao = useCallback(async () => { // Adicionado async
@@ -904,7 +1037,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
     const termo = e.target.value.toLowerCase();
     setTermoBuscaInformativa(termo);
     if (termo.length >= 3) {
-      const alunoEncontrado = registros.find(aluno => 
+      const alunoEncontrado = registros.find(aluno =>
         aluno.nome.toLowerCase().includes(termo)
       );
       setAlunoInfoEncontrado(alunoEncontrado);
@@ -957,12 +1090,12 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
               <label htmlFor="faltas-anteriores" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Faltas Anteriores à Matrícula:
               </label>
-              <input 
+              <input
                 id="faltas-anteriores"
-                type="number" 
-                placeholder="0" 
-                value={alunoParaCadastro.faltasAnteriores} 
-                onChange={e => setAlunoParaCadastro({ ...alunoParaCadastro, faltasAnteriores: e.target.value })} 
+                type="number"
+                placeholder="0"
+                value={alunoParaCadastro.faltasAnteriores}
+                onChange={e => setAlunoParaCadastro({ ...alunoParaCadastro, faltasAnteriores: e.target.value })}
                 className="block w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
               />
             </div>
@@ -976,7 +1109,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
 
       <h3 className="text-xl font-semibold mb-2 mt-8">Data da chamada:</h3>
       <input type="date" value={dataSelecionada} onChange={e => setDataSelecionada(e.target.value)} className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" />
-      
+
       <h3 className="text-xl font-semibold mt-5 mb-2">Selecionar Turma:</h3>
       <select value={turmaSelecionada} onChange={e => setTurmaSelecionada(e.target.value)} className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600">
         {/* <<< ALTERAÇÃO 3: Adicionada opção padrão para o dropdown */}
@@ -1041,7 +1174,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
         <span className="ml-5 font-semibold">📆 Exportar período:</span>
         <input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" />
         <input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} className="ml-1 p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" />
-        
+
         {/* MODIFICAÇÃO AQUI: Botão PDF que abre as opções */}
         <div className="relative inline-block text-left">
           <button
@@ -1074,7 +1207,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
           )}
         </div>
       </div>
-      
+
       {/* NOVIDADE GRÁFICO: Botões de controle de visibilidade e exportação separados */}
       <div className="mt-5 flex flex-wrap gap-3 items-center">
         <button onClick={() => setMostrarGraficoFaltas(!mostrarGraficoFaltas)} className="px-4 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-700 transition-colors duration-200 shadow-md">
@@ -1107,7 +1240,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
         <>
             {mostrarGraficoSemanal && ( // NOVIDADE GRÁFICO: Renderiza GraficoSemanal condicionalmente
               <div className="mt-8"> {/* Removido ref daqui, pois o ref vai para o componente interno */}
-                <GraficoSemanal 
+                <GraficoSemanal
                     chartRef={graficoSemanalRef} // NOVIDADE: Passa o ref para o componente
                     registros={registros} // Recebe TODOS os registros (ativos e inativos)
                     dataInicio={dataInicio} // ===== ALTERAÇÃO AQUI =====: Removido fallback
@@ -1118,14 +1251,14 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
             )}
             {mostrarGraficoFaltas && ( // NOVIDADE GRÁFICO: Renderiza GraficoFaltas condicionalmente
               <div className="mt-8"> {/* Removido ref daqui, pois o ref vai para o componente interno */}
-                <GraficoFaltas 
+                <GraficoFaltas
                     chartRef={graficoFaltasRef} // NOVIDADE: Passa o ref para o componente
                     registros={registros} // Passa TODOS os registros para o GraficoFaltas
-                    dataInicio={dataInicio || REPORT_START_DATE} 
-                    dataFim={dataFim || getTodayDateString()} 
-                    turmaSelecionada={turmaSelecionada} 
-                    tipoUsuario={tipoUsuario} 
-                    turmasPermitidas={turmasPermitidas()} 
+                    dataInicio={dataInicio || REPORT_START_DATE}
+                    dataFim={dataFim || getTodayDateString()}
+                    turmaSelecionada={turmaSelecionada}
+                    tipoUsuario={tipoUsuario}
+                    turmasPermitidas={turmasPermitidas()}
                 />
               </div>
             )}
@@ -1203,6 +1336,10 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
                   <div className="flex justify-end space-x-2 mt-3">
                     	<button onClick={closeObservationDropdown} className="px-3 py-1 rounded-lg bg-red-500 text-white text-xs hover:bg-red-600 transition-colors duration-200 shadow-sm">Cancelar</button>
                     	<button onClick={handleSaveObservations} className="px-3 py-1 rounded-lg bg-green-500 text-white text-xs hover:bg-green-600 transition-colors duration-200 shadow-sm">Salvar</button>
+                      {/* NOVO BOTÃO: ENVIAR MENSAGEM VIA WHATSAPP */}
+                      <button onClick={handleSendObservationWhatsApp} className="px-3 py-1 rounded-lg bg-teal-500 text-white text-xs hover:bg-teal-600 transition-colors duration-200 shadow-sm">
+                        Enviar Mensagem (WhatsApp)
+                      </button>
                   </div>
                 </div>
             )}
@@ -1215,7 +1352,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
                         	<h3 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">
                         		Relatório do(a) Aluno(a): {completeReportData.aluno.nome}
                         	</h3>
-                        	
+
                         	{/* NOVIDADE FOTO: Exibe a foto no relatório completo */}
                         	{completeReportData.aluno.fotoUrl && (
                         	  <div className="mb-4 flex justify-center">
@@ -1249,7 +1386,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
                         			<li>Média de Faltas da Turma: {completeReportData.porcentagemTurma}%</li>
                         			<li>Média de Faltas da Escola: {completeReportData.porcentagemEscola}%</li>
                         		</ul>
-                        		
+
                         		{completeReportData.justificativasNoPeriodo.length > 0 ? (
                         			<>
                         				<h5 className="text-lg font-semibold mt-4 mb-2 text-gray-900 dark:text-white">Justificativas de Falta no Período:</h5>
@@ -1276,7 +1413,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
                         			<p className="text-gray-700 dark:text-gray-300 mt-4">Nenhuma observação registrada para este(a) aluno(a) no período.</p>
                         		)}
                         	</div>
-                        	</>
+                        </>
                         ) : (
                         	<p>Carregando dados do relatório...</p>
                         )}
