@@ -142,7 +142,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
   const [editandoAluno, setEditandoAluno] = useState(null);
   const [novoAluno, setNovoAluno] = useState({ nome: '', turma: '', contato: '', responsavel: '', monitor: '' });
 
-  const [dataInicio, setDataInicio] = useState('2025-07-20');
+  const [dataInicio, setDataInicio] = useState('2025-07-22');
   const [dataFim, setDataFim] = useState('2025-07-26');
 
   const [alunoParaCadastro, setAlunoParaCadastro] = useState({
@@ -737,8 +737,8 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
       });
 
       const fileName = exportAllClasses
-                                   ? `faltas_todas_turmas_${dataInicio}_a_${dataFim}.pdf`
-                                   : `faltas_turma_${normalizeTurmaChar(turmaSelecionada)}_${dataInicio}_a_${dataFim}.pdf`; // Nome do arquivo para turma selecionada
+                                 ? `faltas_todas_turmas_${dataInicio}_a_${dataFim}.pdf`
+                                 : `faltas_turma_${normalizeTurmaChar(turmaSelecionada)}_${dataInicio}_a_${dataFim}.pdf`; // Nome do arquivo para turma selecionada
       doc.save(fileName);
       setShowExportOptions(false); // Esconde as opções após a exportação
     };
@@ -819,23 +819,45 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
     doc.text(`Relatório de Chamada - Turma: ${normalizeTurmaChar(turmaSelecionada)} (${formatarData(dataInicio)} a ${formatarData(dataFim)})`, pageWidth / 2, yOffset, { align: 'center' });
     yOffset += 15;
 
-    // Gerar array de datas no período
-    const dates = [];
-    let currentDate = new Date(dataInicio + 'T00:00:00');
-    const endDate = new Date(dataFim + 'T00:00:00');
+    // **INÍCIO DA LÓGICA DE FILTRAGEM DE DIAS COM PRESENÇA**
+    const allDatesInPeriod = new Set();
+    let tempCurrentDate = new Date(dataInicio + 'T00:00:00');
+    const tempEndDate = new Date(dataFim + 'T00:00:00');
 
-    while (currentDate <= endDate) {
-      dates.push(currentDate.toISOString().split('T')[0]); // Formato YYYY-MM-DD
-      currentDate.setDate(currentDate.getDate() + 1);
+    while (tempCurrentDate <= tempEndDate) {
+        allDatesInPeriod.add(tempCurrentDate.toISOString().split('T')[0]);
+        tempCurrentDate.setDate(tempCurrentDate.getDate() + 1);
     }
 
-    // Preparar cabeçalhos da tabela
-    const head = [['Nº', 'Nome do Aluno', ...dates.map(d => formatarData(d).substring(0, 5))]]; // Ex: "22/07"
+    const datesWithPresence = new Set();
+    registrosFiltradosParaTabelaEOutros.forEach(aluno => {
+        if (aluno.presencas) {
+            Object.entries(aluno.presencas).forEach(([dateString, isPresent]) => {
+                // Verifica se a presença é 'true' E se a data está dentro do período selecionado
+                if (isPresent === true && allDatesInPeriod.has(dateString)) {
+                    datesWithPresence.add(dateString);
+                }
+            });
+        }
+    });
+
+    // Converte o Set para Array e ordena as datas cronologicamente
+    const finalDatesForExport = Array.from(datesWithPresence).sort();
+    // **FIM DA LÓGICA DE FILTRAGEM DE DIAS COM PRESENÇA**
+
+    // Se não houver dias com presença, avisa o usuário e não gera o PDF
+    if (finalDatesForExport.length === 0) {
+        alert('Não há dias com presença registrada para esta turma no período selecionado.');
+        return;
+    }
+
+    // Preparar cabeçalhos da tabela usando as datas filtradas
+    const head = [['Nº', 'Nome do Aluno', ...finalDatesForExport.map(d => formatarData(d).substring(0, 5))]]; // Ex: "22/07"
 
     // Preparar corpo da tabela
     const body = registrosFiltradosParaTabelaEOutros.map((aluno, index) => {
       const row = [index + 1, aluno.nome];
-      dates.forEach(date => {
+      finalDatesForExport.forEach(date => {
         // Se aluno.presencas[date] for true, é 'P'. Caso contrário (false, undefined, null), é 'F'.
         const presence = aluno.presencas?.[date] === true ? 'P' : 'F';
         row.push(presence);
@@ -1342,9 +1364,9 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); handleExcluirFoto(novoAluno); }} // Adicionado e.stopPropagation()
-                      	className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors duration-200 shadow-md"
+                    	className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors duration-200 shadow-md"
                       >
-                      	Excluir Foto
+                    	Excluir Foto
                       </button>
                     </>
                   ) : (

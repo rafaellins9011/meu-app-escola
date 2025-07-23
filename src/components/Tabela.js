@@ -15,6 +15,7 @@
 // NOVA LÓGICA DE PRESENÇA: Campo booleano separado no Firestore para controle da chamada.
 // NOVIDADE BOTÃO: Botão "Alternar Seleção" (✅) adicionado ao cabeçalho da coluna "Chamada".
 // CORREÇÃO CRÍTICA FINAL: Adicionado 'onToggleAllChamada' aos props RECEBIDOS pelo componente Tabela.
+// NOVIDADE REQUERIDA: Bloqueia a seleção de justificativa quando a presença está marcada.
 
 import React from 'react';
 
@@ -78,6 +79,7 @@ const Tabela = ({
     };
 
     if (motivoFinal === "") {
+        // Se a justificativa for limpa, remove a chave do objeto justificativas
         delete atualizado.justificativas[chave];
     }
 
@@ -86,16 +88,34 @@ const Tabela = ({
   };
 
   const handlePresence = (aluno) => {
-    const dataAtual = dataSelecionada; 
-    const currentPresence = aluno.presencas?.[dataAtual]; 
+    const dataAtual = dataSelecionada;  
+    const currentPresence = aluno.presencas?.[dataAtual];  
 
     let newPresencas = { ...aluno.presencas };
+    let newJustificativas = { ...aluno.justificativas };
+    const chaveJustificativa = `${aluno.nome}_${normalizeTurmaChar(aluno.turma)}_${dataAtual}`;
 
-    newPresencas[dataAtual] = !currentPresence; 
+    // A nova presença será o inverso da atual
+    const nextPresenceState = !currentPresence;
+
+    newPresencas[dataAtual] = nextPresenceState;    
     
+    // Se o aluno for marcado como PRESENTE, remove qualquer justificativa existente para essa data
+    if (nextPresenceState === true) {
+        if (newJustificativas[chaveJustificativa]) {
+            delete newJustificativas[chaveJustificativa];
+            console.log(`handlePresence: Removida justificativa para ${aluno.nome} em ${dataAtual} porque foi marcado como PRESENTE.`);
+        }
+    }
+
     console.log(`handlePresence: Aluno ${aluno.nome}, Data ${dataAtual} - Marcado como ${newPresencas[dataAtual] ? 'PRESENTE (true)' : 'AUSENTE (false)'}`);
     
-    onAtualizar(aluno.id, { ...aluno, presencas: newPresencas });
+    // Atualiza tanto as presenças quanto as justificativas (se houver alteração)
+    onAtualizar(aluno.id, { 
+        ...aluno, 
+        presencas: newPresencas, 
+        justificativas: newJustificativas 
+    });
   };
 
 
@@ -116,7 +136,7 @@ const Tabela = ({
                 <span>Chamada</span>
                 <button
                   onClick={(e) => {
-                    e.stopPropagation(); 
+                    e.stopPropagation();  
                     onToggleAllChamada(); // Agora onToggleAllChamada deve estar definida e ser uma função!
                   }}
                   className="p-1 rounded-full bg-blue-400 text-white hover:bg-blue-500 transition-colors duration-200"
@@ -142,9 +162,9 @@ const Tabela = ({
           ) : (
             registros.map((aluno, index) => {
               const chaveJustificativa = `${aluno.nome}_${normalizeTurmaChar(aluno.turma)}_${dataSelecionada}`;
-              const justificativaAtualCompleta = aluno.justificativas?.[chaveJustificativa]; 
+              const justificativaAtualCompleta = aluno.justificativas?.[chaveJustificativa];  
               
-              let justificativaDropdown = justificativaAtualCompleta || "Selecione"; 
+              let justificativaDropdown = justificativaAtualCompleta || "Selecione";  
               if (justificativaAtualCompleta && justificativaAtualCompleta.startsWith("Outros: ")) {
                   justificativaDropdown = "Outros";
               }
@@ -155,21 +175,25 @@ const Tabela = ({
               
               const isSelected = linhaSelecionada === aluno.id;
 
-              const textoOutrosTooltip = (justificativaAtualCompleta && justificativaAtualCompleta.startsWith("Outros: ")) 
-                                                ? justificativaAtualCompleta.replace("Outros: ", "") 
-                                                : '';
+              const textoOutrosTooltip = (justificativaAtualCompleta && justificativaAtualCompleta.startsWith("Outros: "))  
+                                           ? justificativaAtualCompleta.replace("Outros: ", "")  
+                                           : '';
 
               const isPresent = aluno.presencas?.[dataSelecionada] === true;
+
+              // NOVIDADE REQUERIDA: Define se a justificativa deve estar desabilitada
+              const isJustificativaDisabled = isPresent; 
+              // Se isPresent for true, desabilita o select de justificativa
 
               console.log(`Renderizando ${aluno.nome} - Presença (Firestore): ${aluno.presencas?.[dataSelecionada]}, isPresent (checkbox): ${isPresent}`);
 
               return (
-                <tr 
+                <tr  
                   key={aluno.id}
                   onClick={() => onSelecionarLinha(aluno.id)}
-                  className={`border-b border-gray-200 dark:border-gray-700 transition-colors duration-150 cursor-pointer 
-                    ${isSelected 
-                      ? 'bg-green-200 dark:bg-green-800' 
+                  className={`border-b border-gray-200 dark:border-gray-700 transition-colors duration-150 cursor-pointer  
+                    ${isSelected  
+                      ? 'bg-green-200 dark:bg-green-800'  
                       : 'hover:bg-gray-200 dark:hover:bg-gray-600'
                     }`}
                 >
@@ -194,7 +218,7 @@ const Tabela = ({
                   <td className="py-3 px-4 text-sm text-center">
                     <input
                       type="checkbox"
-                      checked={isPresent} 
+                      checked={isPresent}  
                       onChange={(e) => {
                         e.stopPropagation();
                         handlePresence(aluno);
@@ -204,15 +228,18 @@ const Tabela = ({
                     />
                   </td>
                   <td className="py-3 px-4 text-sm">
-                    <div className="tooltip-container"> 
+                    <div className="tooltip-container">  
                         <select
                             value={justificativaDropdown}
                             onChange={(e) => {
-                                e.stopPropagation(); 
+                                e.stopPropagation();  
                                 handleJustificativa(aluno, e.target.value);
                             }}
-                            onClick={(e) => e.stopPropagation()} 
-                            className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600 w-full"
+                            onClick={(e) => e.stopPropagation()}  
+                            // NOVIDADE REQUERIDA: Adiciona a propriedade disabled
+                            disabled={isJustificativaDisabled} 
+                            className={`p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600 w-full 
+                              ${isJustificativaDisabled ? 'bg-gray-100 dark:bg-gray-700 cursor-not-allowed opacity-70' : ''}`}
                         >
                             {opcoesJustificativa.map((opcao, i) => (
                                 <option key={i} value={opcao}>{opcao}</option>
