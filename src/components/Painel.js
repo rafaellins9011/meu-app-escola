@@ -19,6 +19,7 @@
 // NOVIDADE BOTÕES: Adicionado "Desmarcar Todos" e "Exportar Chamada por Período".
 // ATUALIZAÇÃO UI: Botão "Desmarcar Todos" movido para o cabeçalho da tabela em Tabela.js.
 // ATUALIZAÇÃO UI: Botão "Desmarcar Todos" agora "Alternar Seleção" (seleciona tudo/desseleciona tudo).
+// NOVIDADE ALERTA/CUIDADOS: Adicionado campo para registrar alertas/cuidados do aluno no relatório.
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { turmasDisponiveis, monitoresDisponiveis, gestoresDisponiveis } from '../dados'; // Manter para dados estáticos
@@ -140,7 +141,8 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
   const [turmaSelecionada, setTurmaSelecionada] = useState('');
   const [dataSelecionada, setDataSelecionada] = useState(() => getTodayDateString());
   const [editandoAluno, setEditandoAluno] = useState(null);
-  const [novoAluno, setNovoAluno] = useState({ nome: '', turma: '', contato: '', responsavel: '', monitor: '' });
+  // NOVIDADE ALERTA/CUIDADOS: Adicionado 'alertasCuidados' ao estado 'novoAluno'
+  const [novoAluno, setNovoAluno] = useState({ nome: '', turma: '', contato: '', responsavel: '', monitor: '', alertasCuidados: '' });
 
   const [dataInicio, setDataInicio] = useState('2025-07-22');
   const [dataFim, setDataFim] = useState('2025-07-26');
@@ -152,6 +154,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
     responsavel: '',
     monitor: '',
     faltasAnteriores: 0,
+    alertasCuidados: '' // NOVIDADE ALERTA/CUIDADOS: Adicionado ao estado de cadastro
   });
   const [mostrarFormularioCadastro, setMostrarFormularioCadastro] = useState(false);
   const schoolHeaderRef = useRef(null);
@@ -224,7 +227,8 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
         const alunosData = querySnapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data(),
-            ativo: doc.data().ativo ?? true
+            ativo: doc.data().ativo ?? true,
+            alertasCuidados: doc.data().alertasCuidados ?? '' // NOVIDADE ALERTA/CUIDADOS: Inicializa com string vazia
         }));
         setRegistros(alunosData); // Atualiza o estado com os novos dados recebidos
         setLoading(false);
@@ -380,11 +384,11 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
     return contadorAtrasos;
   }, [registros, dataInicio, dataFim]);
 
-  // NOVIDADE FIRESTORE: handleCadastrarAluno agora salva no Firestore (incluindo campo 'presencas')
+  // NOVIDADE FIRESTORE: handleCadastrarAluno agora salva no Firestore (incluindo campo 'presencas' e 'alertasCuidados')
   const handleCadastrarAluno = useCallback(async (e) => {
     e.preventDefault();
     if (!alunoParaCadastro.nome || !alunoParaCadastro.turma || !alunoParaCadastro.contato || !alunoParaCadastro.responsavel || !alunoParaCadastro.monitor) {
-      alert('Por favor, preencha todos os campos para cadastrar o(a) aluno(a).');
+      alert('Por favor, preencha todos os campos obrigatórios para cadastrar o(a) aluno(a).');
       return;
     }
 
@@ -407,14 +411,16 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
       presencas: {}, // NOVIDADE: Inicializa o campo de presenças como um objeto vazio (todos ausentes por padrão)
       totalDiasLetivos: 100,
       ativo: true,
-      fotoUrl: '' // NOVIDADE FOTO: Inicializa fotoUrl vazia, será adicionada via CameraModal
+      fotoUrl: '', // NOVIDADE FOTO: Inicializa fotoUrl vazia, será adicionada via CameraModal
+      alertasCuidados: alunoParaCadastro.alertasCuidados.trim() // NOVIDADE ALERTA/CUIDADOS: Salva o novo campo
     };
 
     try {
       const docRef = doc(collection(db, 'alunos')); // Cria uma nova referência de documento com ID automático
       await setDoc(docRef, novoRegistroData); // Salva os dados do novo aluno no Firestore
 
-      setAlunoParaCadastro({ nome: '', turma: '', contato: '', responsavel: '', monitor: '', faltasAnteriores: 0 }); // Limpa o formulário
+      // Limpa o formulário e o estado do novo aluno, incluindo o novo campo
+      setAlunoParaCadastro({ nome: '', turma: '', contato: '', responsavel: '', monitor: '', faltasAnteriores: 0, alertasCuidados: '' });
       alert('Aluno(a) cadastrado(a) com sucesso!');
     } catch (error) {
       console.error("Erro ao cadastrar aluno no Firestore:", error);
@@ -542,11 +548,12 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
           querySnapshot.docs.forEach(docSnapshot => {
             const alunoDocRef = doc(db, 'alunos', docSnapshot.id);
             // NÃO remove o aluno, apenas reseta justificativas/observações, presenças e o torna ativo
-            batchInstance.update(alunoDocRef, { justificativas: {}, observacoes: {}, presencas: {}, ativo: true, fotoUrl: '' }); // NOVIDADE: Limpa 'presencas'
+            // NOVIDADE ALERTA/CUIDADOS: Limpa o campo 'alertasCuidados' ao reiniciar alertas
+            batchInstance.update(alunoDocRef, { justificativas: {}, observacoes: {}, presencas: {}, ativo: true, fotoUrl: '', alertasCuidados: '' });
           });
           await batchInstance.commit();
 
-          alert("Alertas e presenças reiniciados no Firestore com sucesso!");
+          alert("Alertas, presenças e fotos reiniciados no Firestore com sucesso!");
         } catch (error) {
           console.error("Erro ao reiniciar alertas no Firestore:", error);
           alert("Erro ao reiniciar alertas.");
@@ -737,8 +744,8 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
       });
 
       const fileName = exportAllClasses
-                                 ? `faltas_todas_turmas_${dataInicio}_a_${dataFim}.pdf`
-                                 : `faltas_turma_${normalizeTurmaChar(turmaSelecionada)}_${dataInicio}_a_${dataFim}.pdf`; // Nome do arquivo para turma selecionada
+                                   ? `faltas_todas_turmas_${dataInicio}_a_${dataFim}.pdf`
+                                   : `faltas_turma_${normalizeTurmaChar(turmaSelecionada)}_${dataInicio}_a_${dataFim}.pdf`; // Nome do arquivo para turma selecionada
       doc.save(fileName);
       setShowExportOptions(false); // Esconde as opções após a exportação
     };
@@ -966,7 +973,8 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
 
   // NOVIDADE FIRESTORE: editarAluno agora usa o ID do aluno
   const editarAluno = useCallback((alunoOriginal) => {
-    setNovoAluno(alunoOriginal); // Define o aluno a ser editado
+    // NOVIDADE ALERTA/CUIDADOS: Garante que 'alertasCuidados' seja passado para o estado de edição
+    setNovoAluno({ ...alunoOriginal, alertasCuidados: alunoOriginal.alertasCuidados || '' });
     // Usa o ID do Firestore como chave de edição se existir, senão o originalIndex
     setEditandoAluno(alunoOriginal.id || alunoOriginal.originalIndex);
   }, []);
@@ -1024,39 +1032,180 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
 
   const handleCheckboxChange = useCallback((option) => { setTempSelectedObservations(prev => { const newSet = new Set(prev); if (newSet.has(option)) { newSet.delete(option); } else { newSet.add(option); } return newSet; }); if (option === "Outros" && tempSelectedObservations.has("Outros")) { setOtherObservationText(''); } }, [tempSelectedObservations]);
   const handleOtherTextChange = useCallback((e) => { const text = e.target.value; setOtherObservationText(text); if (text.trim() !== '' && !tempSelectedObservations.has("Outros")) { setTempSelectedObservations(prev => new Set(prev).add("Outros")); } else if (text.trim() === '' && tempSelectedObservations.has("Outros")) { const newSet = new Set(tempSelectedObservations); newSet.delete("Outros"); setTempSelectedObservations(newSet); } }, [tempSelectedObservations]);
-  const calculateCompleteReport = useCallback((aluno) => { if (!aluno) return null; const today = getTodayDateString(); const startDate = REPORT_START_DATE; const start = new Date(startDate); const end = new Date(today); let actualDaysInPeriod = 0; for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) { const dayOfWeek = d.getDay(); if (dayOfWeek !== 0 && dayOfWeek !== 6) { actualDaysInPeriod++; } } if (actualDaysInPeriod === 0) actualDaysInPeriod = 1; let faltasAluno = 0; const alunoJustificativas = aluno.justificativas || {}; const justificativasNoPeriodo = []; Object.entries(alunoJustificativas).forEach(([chave, justificativa]) => { const partes = chave.split('_'); const data = partes[2]; if (data >= startDate && data <= today && justificativa && justificativa !== "Selecione") { faltasAluno++; justificativasNoPeriodo.push({ data: formatarData(data), justificativa: justificativa.startsWith("Outros: ") ? justificativa.substring(8) : justificativa, }); } }); const totalDiasLetivos = aluno.totalDiasLetivos || 100; const porcentagemAluno = ((faltasAluno / totalDiasLetivos) * 100).toFixed(2); let faltasTurma = 0; let totalAlunosNaTurma = new Set();
+  const calculateCompleteReport = useCallback((aluno) => {
+    if (!aluno) return null;
+    const today = getTodayDateString();
+    const startDate = REPORT_START_DATE;
+    const start = new Date(startDate);
+    const end = new Date(today);
+    let actualDaysInPeriod = 0;
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const dayOfWeek = d.getDay();
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        actualDaysInPeriod++;
+      }
+    }
+    if (actualDaysInPeriod === 0) actualDaysInPeriod = 1;
+    let faltasAluno = 0;
+    const alunoJustificativas = aluno.justificativas || {};
+    const justificativasNoPeriodo = [];
+    Object.entries(alunoJustificativas).forEach(([chave, justificativa]) => {
+      const partes = chave.split('_');
+      const data = partes[2];
+      if (data >= startDate && data <= today && justificativa && justificativa !== "Selecione") {
+        faltasAluno++;
+        justificativasNoPeriodo.push({ data: formatarData(data), justificativa: justificativa.startsWith("Outros: ") ? justificativa.substring(8) : justificativa, });
+      }
+    });
+    const totalDiasLetivos = aluno.totalDiasLetivos || 100;
+    const porcentagemAluno = ((faltasAluno / totalDiasLetivos) * 100).toFixed(2);
+    let faltasTurma = 0;
+    let totalAlunosNaTurma = new Set();
     // NOVIDADE: Para o relatório completo, consideramos apenas os alunos ATIVOS para as médias comparativas da turma/escola.
-    registros.filter(a => a.ativo).forEach(r => { if (normalizeTurmaChar(r.turma) === normalizeTurmaChar(aluno.turma)) { totalAlunosNaTurma.add(r.nome); const rJustificativas = r.justificativas || {}; Object.entries(rJustificativas).forEach(([chave, justificativa]) => { const partes = chave.split('_'); const data = partes[2]; if (data >= startDate && data <= today && justificativa !== "") { faltasTurma++; } }); } }); const numAlunosNaTurma = totalAlunosNaTurma.size > 0 ? totalAlunosNaTurma.size : 1; const totalDiasLetivosTurma = numAlunosNaTurma * actualDaysInPeriod; const porcentagemTurma = totalDiasLetivosTurma > 0 ? ((faltasTurma / totalDiasLetivosTurma) * 100).toFixed(2) : 0; let faltasEscola = 0; let totalAlunosNaEscola = new Set();
-    registros.filter(a => a.ativo).forEach(r => { totalAlunosNaEscola.add(r.nome); const rJustificativas = r.justificativas || {}; Object.entries(rJustificativas).forEach(([chave, justificativa]) => { const partes = chave.split('_'); const data = partes[2]; if (data >= startDate && data <= today && justificativa !== "") { faltasEscola++; } }); }); const numAlunosNaEscola = totalAlunosNaEscola.size > 0 ? totalAlunosNaEscola.size : 1; const totalDiasLetivosEscola = numAlunosNaEscola * actualDaysInPeriod; const porcentagemEscola = totalDiasLetivosEscola > 0 ? ((faltasEscola / totalDiasLetivosEscola) * 100).toFixed(2) : 0; const observacoesAlunoNoPeriodo = []; Object.entries(aluno.observacoes || {}).forEach(([chave, obsArray]) => { const partes = chave.split('_'); const dataObs = partes[2]; if (dataObs >= startDate && dataObs <= today && Array.isArray(obsArray) && obsArray.length > 0) { observacoesAlunoNoPeriodo.push({ data: formatarData(dataObs), observacoes: obsArray.join('; ') }); } }); return { aluno, periodo: `${formatarData(startDate)} a ${formatarData(today)}`, diasLetivosNoPeriodo: actualDaysInPeriod, faltasAluno, porcentagemAluno, faltasTurma, porcentagemTurma, faltasEscola, porcentagemEscola, observacoesAlunoNoPeriodo, justificativasNoPeriodo }; }, [registros]);
+    registros.filter(a => a.ativo).forEach(r => {
+      if (normalizeTurmaChar(r.turma) === normalizeTurmaChar(aluno.turma)) {
+        totalAlunosNaTurma.add(r.nome);
+        const rJustificativas = r.justificativas || {};
+        Object.entries(rJustificativas).forEach(([chave, justificativa]) => {
+          const partes = chave.split('_');
+          const data = partes[2];
+          if (data >= startDate && data <= today && justificativa !== "") {
+            faltasTurma++;
+          }
+        });
+      }
+    });
+    const numAlunosNaTurma = totalAlunosNaTurma.size > 0 ? totalAlunosNaTurma.size : 1;
+    const totalDiasLetivosTurma = numAlunosNaTurma * actualDaysInPeriod;
+    const porcentagemTurma = totalDiasLetivosTurma > 0 ? ((faltasTurma / totalDiasLetivosTurma) * 100).toFixed(2) : 0;
+    let faltasEscola = 0;
+    let totalAlunosNaEscola = new Set();
+    registros.filter(a => a.ativo).forEach(r => {
+      totalAlunosNaEscola.add(r.nome);
+      const rJustificativas = r.justificativas || {};
+      Object.entries(rJustificativas).forEach(([chave, justificativa]) => {
+        const partes = chave.split('_');
+        const data = partes[2];
+        if (data >= startDate && data <= today && justificativa !== "") {
+          faltasEscola++;
+        }
+      });
+    });
+    const numAlunosNaEscola = totalAlunosNaEscola.size > 0 ? totalAlunosNaEscola.size : 1;
+    const totalDiasLetivosEscola = numAlunosNaEscola * actualDaysInPeriod;
+    const porcentagemEscola = totalDiasLetivosEscola > 0 ? ((faltasEscola / totalDiasLetivosEscola) * 100).toFixed(2) : 0;
+    const observacoesAlunoNoPeriodo = [];
+    Object.entries(aluno.observacoes || {}).forEach(([chave, obsArray]) => {
+      const partes = chave.split('_');
+      const dataObs = partes[2];
+      if (dataObs >= startDate && dataObs <= today && Array.isArray(obsArray) && obsArray.length > 0) {
+        observacoesAlunoNoPeriodo.push({ data: formatarData(dataObs), observacoes: obsArray.join('; ') });
+      }
+    });
+    // NOVIDADE ALERTA/CUIDADOS: Inclui o campo alertasCuidados no relatório
+    return {
+      aluno,
+      periodo: `${formatarData(startDate)} a ${formatarData(today)}`,
+      diasLetivosNoPeriodo: actualDaysInPeriod,
+      faltasAluno,
+      porcentagemAluno,
+      faltasTurma,
+      porcentagemTurma,
+      faltasEscola,
+      porcentagemEscola,
+      observacoesAlunoNoPeriodo,
+      justificativasNoPeriodo,
+      alertasCuidados: aluno.alertasCuidados || '' // NOVIDADE ALERTA/CUIDADOS: Passa o alerta/cuidado para o relatório
+    };
+  }, [registros]);
   const handleAbrirRelatorioAluno = useCallback((aluno) => { const reportData = calculateCompleteReport(aluno); setCompleteReportData(reportData); setSelectedStudentForReport(aluno); setShowCompleteReportModal(true); }, [calculateCompleteReport]);
-  const exportCompleteReportPDF = useCallback(() => { if (!completeReportData) { alert('Não há dados de relatório para exportar.'); return; } const doc = new jsPDF(); const pageWidth = doc.internal.pageSize.getWidth(); const schoolName = `ESCOLA ESTADUAL CÍVICO-MILITAR PROFESSORA ANA MARIA DAS GRAÇAS DE SOUZA NORONHA`; const logoUrl = '/logo-escola.png'; let yOffset = 10; const addContentToDoc = () => { doc.setFontSize(14); doc.text(`Relatório do(a) Aluno(a): ${completeReportData.aluno.nome}`, pageWidth / 2, yOffset, { align: 'center' }); yOffset += 10;
-    // NOVIDADE FOTO: Adiciona a foto do aluno ao PDF se existir
-    if (completeReportData.aluno.fotoUrl) {
-      const img = new Image();
-      img.src = completeReportData.aluno.fotoUrl; // Use logoUrl como fallback ou se for a mesma imagem
-      img.crossOrigin = "Anonymous"; // Necessário para imagens de outros domínios
-      img.onload = () => {
-        const imgWidth = 30; // Largura da imagem no PDF
-        const imgHeight = (img.height * imgWidth) / img.width;
-        const xImg = (pageWidth - imgWidth) / 2;
-        // MODIFICAÇÃO: Usar 'JPEG' com qualidade para a foto do aluno
-        doc.addImage(img, 'JPEG', xImg, yOffset, imgWidth, imgHeight, null, 'FAST'); // 'FAST' para otimização
-        yOffset += imgHeight + 5;
-        continuePdfContent();
-      };
-      img.onerror = () => {
-        console.error("Erro ao carregar a foto do aluno para o PDF. Continuar sem a imagem.");
-        continuePdfContent();
-      };
-    } else {
-      continuePdfContent();
-    }
+  const exportCompleteReportPDF = useCallback(() => {
+    if (!completeReportData) { alert('Não há dados de relatório para exportar.'); return; }
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const schoolName = `ESCOLA ESTADUAL CÍVICO-MILITAR PROFESSORA ANA MARIA DAS GRAÇAS DE SOUZA NORONHA`;
+    const logoUrl = '/logo-escola.png';
+    let yOffset = 10;
 
-    function continuePdfContent() {
-      doc.setFontSize(10); doc.text(`Período do Relatório: ${completeReportData.periodo}`, 14, yOffset); yOffset += 7; doc.text(`Total de Faltas no Período: ${completeReportData.faltasAluno} (${completeReportData.porcentagemAluno}%)`, 14, yOffset); yOffset += 7; doc.text(`Turma: ${normalizeTurmaChar(completeReportData.aluno.turma)}`, 14, yOffset); yOffset += 7; doc.text(`Contato: ${completeReportData.aluno.contato}`, 14, yOffset); yOffset += 7; doc.text(`Responsável: ${completeReportData.aluno.responsavel}`, 14, yOffset); yOffset += 10; doc.setFontSize(12); doc.text('Métricas Comparativas:', 14, yOffset); yOffset += 7; doc.setFontSize(10); doc.text(`Percentual de Faltas do(a) Aluno(a): ${completeReportData.porcentagemAluno}%`, 14, yOffset); yOffset += 7; doc.text(`Média de Faltas da Turma: ${completeReportData.porcentagemTurma}%`, 14, yOffset); yOffset += 7; doc.text(`Média de Faltas da Escola: ${completeReportData.porcentagemEscola}%`, 14, yOffset); yOffset += 10; let finalY = yOffset; if (completeReportData.justificativasNoPeriodo.length > 0) { doc.setFontSize(12); doc.text('Justificativas de Falta no Período:', 14, finalY); finalY += 5; const jusBody = completeReportData.justificativasNoPeriodo.map(jus => [jus.data, jus.justificativa]); autoTable(doc, { startY: finalY, head: [['Data', 'Justificativa']], body: jusBody, styles: { fontSize: 8 }, headStyles: { fillColor: [37, 99, 235] } }); finalY = doc.lastAutoTable.finalY; } if (completeReportData.observacoesAlunoNoPeriodo.length > 0) { doc.setFontSize(12); doc.text('Observações no Período:', 14, finalY + 10); finalY += 15; const obsBody = completeReportData.observacoesAlunoNoPeriodo.map(obs => [obs.data, obs.observacoes]); autoTable(doc, { startY: finalY, head: [['Data', 'Observações']], body: obsBody, styles: { fontSize: 8 }, headStyles: { fillColor: [37, 99, 235] } }); } doc.save(`relatorio_completo_${completeReportData.aluno.nome.replace(/ /g, '_')}.pdf`);
-    }
-  };
-  const img = new Image(); img.src = logoUrl; img.crossOrigin = "Anonymous"; img.onload = () => { const logoWidth = 20; const logoHeight = (img.height * logoWidth) / img.width; const xLogo = (pageWidth - logoWidth) / 2; doc.addImage(img, 'PNG', xLogo, yOffset, logoWidth, logoHeight); yOffset += logoHeight + 5; doc.setFontSize(9); doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' }); yOffset += 10; addContentToDoc(); }; img.onerror = () => { console.error("Erro ao carregar a logo. Gerando PDF sem a imagem."); doc.setFontSize(12); doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' }); yOffset += 15; addContentToDoc(); }; }, [completeReportData]);
+    const addContentToDoc = () => {
+      doc.setFontSize(14);
+      doc.text(`Relatório do(a) Aluno(a): ${completeReportData.aluno.nome}`, pageWidth / 2, yOffset, { align: 'center' });
+      yOffset += 10;
+      // NOVIDADE FOTO: Adiciona a foto do aluno ao PDF se existir
+      if (completeReportData.aluno.fotoUrl) {
+        const img = new Image();
+        img.src = completeReportData.aluno.fotoUrl; // Use logoUrl como fallback ou se for a mesma imagem
+        img.crossOrigin = "Anonymous"; // Necessário para imagens de outros domínios
+        img.onload = () => {
+          const imgWidth = 30; // Largura da imagem no PDF
+          const imgHeight = (img.height * imgWidth) / img.width;
+          const xImg = (pageWidth - imgWidth) / 2;
+          // MODIFICAÇÃO: Usar 'JPEG' com qualidade para a foto do aluno
+          doc.addImage(img, 'JPEG', xImg, yOffset, imgWidth, imgHeight, null, 'FAST'); // 'FAST' para otimização
+          yOffset += imgHeight + 5;
+          continuePdfContent();
+        };
+        img.onerror = () => {
+          console.error("Erro ao carregar a foto do aluno para o PDF. Continuar sem a imagem.");
+          continuePdfContent();
+        };
+      } else {
+        continuePdfContent();
+      }
+
+      function continuePdfContent() {
+        doc.setFontSize(10);
+        doc.text(`Período do Relatório: ${completeReportData.periodo}`, 14, yOffset);
+        yOffset += 7;
+        doc.text(`Total de Faltas no Período: ${completeReportData.faltasAluno} (${completeReportData.porcentagemAluno}%)`, 14, yOffset);
+        yOffset += 7;
+        doc.text(`Turma: ${normalizeTurmaChar(completeReportData.aluno.turma)}`, 14, yOffset);
+        yOffset += 7;
+        doc.text(`Contato: ${completeReportData.aluno.contato}`, 14, yOffset);
+        yOffset += 7;
+        doc.text(`Responsável: ${completeReportData.aluno.responsavel}`, 14, yOffset);
+        // NOVIDADE ALERTA/CUIDADOS: Adiciona o Alerta/Cuidados no PDF
+        if (completeReportData.alertasCuidados) {
+            yOffset += 10; // Espaço antes da nova seção
+            doc.setFontSize(12);
+            doc.text('Alertas / Cuidados:', 14, yOffset);
+            yOffset += 5;
+            doc.setFontSize(10);
+            const splitText = doc.splitTextToSize(completeReportData.alertasCuidados, pageWidth - 28); // Quebra o texto para caber na largura
+            doc.text(splitText, 14, yOffset);
+            yOffset += (splitText.length * 5) + 5; // Aumenta o yOffset com base no número de linhas do texto
+        }
+        yOffset += 10;
+        doc.setFontSize(12);
+        doc.text('Métricas Comparativas:', 14, yOffset);
+        yOffset += 7;
+        doc.setFontSize(10);
+        doc.text(`Percentual de Faltas do(a) Aluno(a): ${completeReportData.porcentagemAluno}%`, 14, yOffset);
+        yOffset += 7;
+        doc.text(`Média de Faltas da Turma: ${completeReportData.porcentagemTurma}%`, 14, yOffset);
+        yOffset += 7;
+        doc.text(`Média de Faltas da Escola: ${completeReportData.porcentagemEscola}%`, 14, yOffset);
+        yOffset += 10;
+        let finalY = yOffset;
+        if (completeReportData.justificativasNoPeriodo.length > 0) {
+          doc.setFontSize(12);
+          doc.text('Justificativas de Falta no Período:', 14, finalY);
+          finalY += 5;
+          const jusBody = completeReportData.justificativasNoPeriodo.map(jus => [jus.data, jus.justificativa]);
+          autoTable(doc, { startY: finalY, head: [['Data', 'Justificativa']], body: jusBody, styles: { fontSize: 8 }, headStyles: { fillColor: [37, 99, 235] } });
+          finalY = doc.lastAutoTable.finalY;
+        }
+        if (completeReportData.observacoesAlunoNoPeriodo.length > 0) {
+          doc.setFontSize(12);
+          doc.text('Observações no Período:', 14, finalY + 10);
+          finalY += 15;
+          const obsBody = completeReportData.observacoesAlunoNoPeriodo.map(obs => [obs.data, obs.observacoes]);
+          autoTable(doc, { startY: finalY, head: [['Data', 'Observações']], body: obsBody, styles: { fontSize: 8 }, headStyles: { fillColor: [37, 99, 235] } });
+        }
+        doc.save(`relatorio_completo_${completeReportData.aluno.nome.replace(/ /g, '_')}.pdf`);
+      }
+    };
+    const img = new Image(); img.src = logoUrl; img.crossOrigin = "Anonymous"; img.onload = () => { const logoWidth = 20; const logoHeight = (img.height * logoWidth) / img.width; const xLogo = (pageWidth - logoWidth) / 2; doc.addImage(img, 'PNG', xLogo, yOffset, logoWidth, logoHeight); yOffset += logoHeight + 5; doc.setFontSize(9); doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' }); yOffset += 10; addContentToDoc(); }; img.onerror = () => { console.error("Erro ao carregar a logo. Gerando PDF sem a imagem."); doc.setFontSize(12); doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' }); yOffset += 15; addContentToDoc(); }; }, [completeReportData]);
   const handleAbrirModalRecomposicao = useCallback((aluno) => { setAlunoParaRecompor(aluno); setIsRecomporModalOpen(true); setRecomporDataInicio(''); setRecomporDataFim(''); }, []);
   const handleConfirmarRecomposicao = useCallback(async () => { // Adicionado async
     if (!alunoParaRecompor || !recomporDataInicio || !recomporDataFim) {
@@ -1064,33 +1213,33 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
         return;
     }
     if (window.confirm(`Tem certeza que deseja limpar as justificativas de ${alunoParaRecompor.nome} no período de ${formatarData(recomporDataInicio)} a ${formatarData(recomporDataFim)}?`)) {
-        try {
-            const alunoDocRef = doc(db, 'alunos', alunoParaRecompor.id);
-            const alunoSnapshot = await getDoc(alunoDocRef); // Obter os dados atuais do aluno
-            if (!alunoSnapshot.exists()) {
-                console.error("Aluno não encontrado para recomposição.");
-                alert("Erro: Aluno não encontrado.");
-                return;
-            }
-            const currentJustificativas = alunoSnapshot.data().justificativas || {};
-            const novasJustificativas = { ...currentJustificativas };
+      try {
+          const alunoDocRef = doc(db, 'alunos', alunoParaRecompor.id);
+          const alunoSnapshot = await getDoc(alunoDocRef); // Obter os dados atuais do aluno
+          if (!alunoSnapshot.exists()) {
+              console.error("Aluno não encontrado para recomposição.");
+              alert("Erro: Aluno não encontrado.");
+              return;
+          }
+          const currentJustificativas = alunoSnapshot.data().justificativas || {};
+          const novasJustificativas = { ...currentJustificativas };
 
-            Object.keys(novasJustificativas).forEach(chave => {
-                const dataDaFalta = chave.split('_')[2];
-                if (dataDaFalta >= recomporDataInicio && dataDaFalta <= recomporDataFim) {
-                    delete novasJustificativas[chave];
-                }
-            });
+          Object.keys(novasJustificativas).forEach(chave => {
+              const dataDaFalta = chave.split('_')[2];
+              if (dataDaFalta >= recomporDataInicio && dataDaFalta <= recomporDataFim) {
+                  delete novasJustificativas[chave];
+              }
+          });
 
-            await updateDoc(alunoDocRef, { justificativas: novasJustificativas });
-            alert("Justificativas do período foram limpas no Firestore com sucesso!");
-            // A atualização do estado 'registros' será feita automaticamente pelo onSnapshot listener
-            setIsRecomporModalOpen(false);
-            setAlunoParaRecompor(null);
-        } catch (error) {
-            console.error("Erro ao recompor faltas no Firestore:", error);
-            alert("Erro ao recompor faltas.");
-        }
+          await updateDoc(alunoDocRef, { justificativas: novasJustificativas });
+          alert("Justificativas do período foram limpas no Firestore com sucesso!");
+          // A atualização do estado 'registros' será feita automaticamente pelo onSnapshot listener
+          setIsRecomporModalOpen(false);
+          setAlunoParaRecompor(null);
+      } catch (error) {
+          console.error("Erro ao recompor faltas no Firestore:", error);
+          alert("Erro ao recompor faltas.");
+      }
     }
   }, [alunoParaRecompor, recomporDataInicio, recomporDataFim]);
 
@@ -1160,6 +1309,21 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                 className="block w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
               />
             </div>
+            {/* NOVIDADE ALERTA/CUIDADOS: Campo para Alertas/Cuidados no Cadastro */}
+            <div className="mb-3">
+                <label htmlFor="alertas-cuidados" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Alertas / Cuidados (Ex: "Alergia a lactose", "TDAH", "Asma"):
+                </label>
+                <textarea
+                    id="alertas-cuidados"
+                    placeholder="Adicione informações importantes sobre o aluno (alergias, condições médicas, etc.)"
+                    value={alunoParaCadastro.alertasCuidados}
+                    onChange={e => setAlunoParaCadastro({ ...alunoParaCadastro, alertasCuidados: e.target.value })}
+                    rows="3"
+                    className="block w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                ></textarea>
+            </div>
+            {/* FIM NOVIDADE ALERTA/CUIDADOS */}
             {/* NOVIDADE FOTO: Removido o campo URL manual aqui, pois o CameraModal fará o upload */}
             <button type="submit" className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors duration-200 shadow-md">
               ➕ Cadastrar Aluno(a)
@@ -1346,10 +1510,25 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
               <div className="mt-8 border border-gray-300 p-6 rounded-lg shadow-lg bg-white dark:bg-gray-800 dark:border-gray-700">
                 <h4 className="text-xl font-semibold mb-4">Editar Aluno(a)</h4>
                 <input placeholder="Nome" value={novoAluno.nome} onChange={e => setNovoAluno({ ...novoAluno, nome: e.target.value })} className="block w-full p-2 mb-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" /><br />
-                <input placeholder="Turma" value={novoAluno.turma} onChange={e => setNovoAluno({ ...novoAluno.turma, turma: e.target.value })} className="block w-full p-2 mb-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" /><br />
+                <input placeholder="Turma" value={novoAluno.turma} onChange={e => setNovoAluno({ ...novoAluno, turma: e.target.value })} className="block w-full p-2 mb-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" /><br />
                 <input placeholder="Contato" value={novoAluno.contato} onChange={e => setNovoAluno({ ...novoAluno, contato: e.target.value })} className="block w-full p-2 mb-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" /><br />
-                <input placeholder="Responsável" value={novoAluno.responsavel} onChange={e => setNovoAluno({ ...novoAluno.responsavel, responsavel: e.target.value })} className="block w-full p-2 mb-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" /><br />
-                <input placeholder="Monitor(a)" value={novoAluno.monitor} onChange={e => setNovoAluno({ ...novoAluno.monitor, monitor: e.target.value })} className="block w-full p-2 mb-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" /><br />
+                <input placeholder="Responsável" value={novoAluno.responsavel} onChange={e => setNovoAluno({ ...novoAluno, responsavel: e.target.value })} className="block w-full p-2 mb-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" /><br />
+                <input placeholder="Monitor(a)" value={novoAluno.monitor} onChange={e => setNovoAluno({ ...novoAluno, monitor: e.target.value })} className="block w-full p-2 mb-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" /><br />
+                {/* NOVIDADE ALERTA/CUIDADOS: Campo para Alertas/Cuidados na Edição */}
+                <div className="mb-3">
+                    <label htmlFor="edit-alertas-cuidados" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Alertas / Cuidados:
+                    </label>
+                    <textarea
+                        id="edit-alertas-cuidados"
+                        placeholder="Adicione informações importantes sobre o aluno (alergias, condições médicas, etc.)"
+                        value={novoAluno.alertasCuidados}
+                        onChange={e => setNovoAluno({ ...novoAluno, alertasCuidados: e.target.value })}
+                        rows="3"
+                        className="block w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                    ></textarea>
+                </div>
+                {/* FIM NOVIDADE ALERTA/CUIDADOS */}
                 {/* NOVIDADE FOTO: Botões para gerenciar a foto na edição */}
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   {novoAluno.fotoUrl ? (
@@ -1364,9 +1543,9 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); handleExcluirFoto(novoAluno); }} // Adicionado e.stopPropagation()
-                    	className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors duration-200 shadow-md"
+                        className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors duration-200 shadow-md"
                       >
-                    	Excluir Foto
+                        Excluir Foto
                       </button>
                     </>
                   ) : (
@@ -1392,15 +1571,15 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                 <div ref={dropdownRef} className="fixed z-50 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg p-3" style={{ top: buttonPosition.top + buttonPosition.height + 5, left: buttonPosition.left, minWidth: '250px', maxWidth: '350px', }}> {/* CORREÇÃO AQUI: Usando buttonPosition */}
                   <h4 className="text-sm font-semibold mb-2 text-gray-900 dark:text-white">Selecione as Observações para {currentAlunoForObservation.nome}:</h4>
                   <div className="space-y-2 mb-4 max-h-60 overflow-y-auto pr-2">
-                    	{opcoesObservacao.map((opcao, i) => (<div key={i} className="flex items-center">{opcao === "Outros" ? (<label className="flex items-center w-full"><input type="checkbox" className="form-checkbox h-4 w-4 text-blue-600 rounded" checked={tempSelectedObservations.has("Outros")} onChange={() => handleCheckboxChange("Outros")} /><span className="ml-2 text-gray-700 dark:text-gray-300">Outros:</span><input type="text" value={otherObservationText} onChange={handleOtherTextChange} placeholder="Digite sua observação personalizada" className="ml-2 flex-grow p-1 border border-gray-300 rounded-md dark:bg-gray-700 dark:text-white dark:border-gray-600" /></label>) : (<label className="flex items-center"><input type="checkbox" className="form-checkbox h-4 w-4 text-blue-600 rounded" checked={tempSelectedObservations.has(opcao)} onChange={() => handleCheckboxChange(opcao)} /><span className="ml-2 text-gray-700 dark:text-gray-300">{opcao}</span></label>)}</div>))}
+                    {opcoesObservacao.map((opcao, i) => (<div key={i} className="flex items-center">{opcao === "Outros" ? (<label className="flex items-center w-full"><input type="checkbox" className="form-checkbox h-4 w-4 text-blue-600 rounded" checked={tempSelectedObservations.has("Outros")} onChange={() => handleCheckboxChange("Outros")} /><span className="ml-2 text-gray-700 dark:text-gray-300">Outros:</span><input type="text" value={otherObservationText} onChange={handleOtherTextChange} placeholder="Digite sua observação personalizada" className="ml-2 flex-grow p-1 border border-gray-300 rounded-md dark:bg-gray-700 dark:text-white dark:border-gray-600" /></label>) : (<label className="flex items-center"><input type="checkbox" className="form-checkbox h-4 w-4 text-blue-600 rounded" checked={tempSelectedObservations.has(opcao)} onChange={() => handleCheckboxChange(opcao)} /><span className="ml-2 text-gray-700 dark:text-gray-300">{opcao}</span></label>)}</div>))}
                   </div>
                   <div className="flex justify-end space-x-2 mt-3">
-                    	<button onClick={closeObservationDropdown} className="px-3 py-1 rounded-lg bg-red-500 text-white text-xs hover:bg-red-600 transition-colors duration-200 shadow-sm">Cancelar</button>
-                    	<button onClick={handleSaveObservations} className="px-3 py-1 rounded-lg bg-green-500 text-white text-xs hover:bg-green-600 transition-colors duration-200 shadow-sm">Salvar</button>
-                      {/* NOVO BOTÃO: ENVIAR MENSAGEM VIA WHATSAPP */}
-                      <button onClick={handleSendObservationWhatsApp} className="px-3 py-1 rounded-lg bg-teal-500 text-white text-xs hover:bg-teal-600 transition-colors duration-200 shadow-sm">
-                        Enviar Mensagem (WhatsApp)
-                      </button>
+                    <button onClick={closeObservationDropdown} className="px-3 py-1 rounded-lg bg-red-500 text-white text-xs hover:bg-red-600 transition-colors duration-200 shadow-sm">Cancelar</button>
+                    <button onClick={handleSaveObservations} className="px-3 py-1 rounded-lg bg-green-500 text-white text-xs hover:bg-green-600 transition-colors duration-200 shadow-sm">Salvar</button>
+                    {/* NOVO BOTÃO: ENVIAR MENSAGEM VIA WHATSAPP */}
+                    <button onClick={handleSendObservationWhatsApp} className="px-3 py-1 rounded-lg bg-teal-500 text-white text-xs hover:bg-teal-600 transition-colors duration-200 shadow-sm">
+                      Enviar Mensagem (WhatsApp)
+                    </button>
                   </div>
                 </div>
             )}
@@ -1410,86 +1589,95 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
                         {completeReportData ? (
                         <>
-                        	<h3 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">
-                        		Relatório do(a) Aluno(a): {completeReportData.aluno.nome}
-                        	</h3>
+                            <h3 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">
+                                Relatório do(a) Aluno(a): {completeReportData.aluno.nome}
+                            </h3>
 
-                        	{/* NOVIDADE FOTO: Exibe a foto no relatório completo */}
-                        	{completeReportData.aluno.fotoUrl && (
-                        	  <div className="mb-4 flex justify-center">
-                        		<img
-                        			src={completeReportData.aluno.fotoUrl}
-                        			alt={`Foto de ${completeReportData.aluno.nome}`}
-                        			className="w-32 h-32 object-cover rounded-full border-2 border-gray-300 dark:border-gray-600"
-                        		/>
-                        	  </div>
-                        	)}
+                            {/* NOVIDADE FOTO: Exibe a foto no relatório completo */}
+                            {completeReportData.aluno.fotoUrl && (
+                                <div className="mb-4 flex justify-center">
+                                    <img
+                                        src={completeReportData.aluno.fotoUrl}
+                                        alt={`Foto de ${completeReportData.aluno.nome}`}
+                                        className="w-32 h-32 object-cover rounded-full border-2 border-gray-300 dark:border-gray-600"
+                                    />
+                                </div>
+                            )}
 
-                        	<div className="flex gap-4 mb-6">
-                        		<button
-                        			onClick={exportCompleteReportPDF}
-                        			className="px-4 py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors duration-200 shadow-md"
-                        		>
-                        			Exportar PDF
-                        		</button>
-                        	</div>
+                            <div className="flex gap-4 mb-6">
+                                <button
+                                    onClick={exportCompleteReportPDF}
+                                    className="px-4 py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors duration-200 shadow-md"
+                                >
+                                    Exportar PDF
+                                </button>
+                            </div>
 
-                        	<div className="bg-gray-100 dark:bg-gray-700 p-4 rounded-lg shadow-inner">
-                        		<h4 className="text-xl font-bold mb-3 text-gray-900 dark:text-white">Dados do Relatório</h4>
-                        		<p className="text-gray-700 dark:text-gray-300 mb-1"><strong>Período Analisado:</strong> {completeReportData.periodo}</p>
-                        		<p className="text-gray-700 dark:text-gray-300 mb-1"><strong>Total de Faltas no Período:</strong> {completeReportData.faltasAluno}</p>
-                        		<p className="text-gray-700 dark:text-gray-300 mb-1"><strong>Turma:</strong> {normalizeTurmaChar(completeReportData.aluno.turma)}</p>
-                        		<p className="text-gray-700 dark:text-gray-300 mb-1"><strong>Responsável:</strong> {completeReportData.aluno.responsavel}</p>
+                            <div className="bg-gray-100 dark:bg-gray-700 p-4 rounded-lg shadow-inner">
+                                <h4 className="text-xl font-bold mb-3 text-gray-900 dark:text-white">Dados do Relatório</h4>
+                                <p className="text-gray-700 dark:text-gray-300 mb-1"><strong>Período Analisado:</strong> {completeReportData.periodo}</p>
+                                <p className="text-gray-700 dark:text-gray-300 mb-1"><strong>Total de Faltas no Período:</strong> {completeReportData.faltasAluno}</p>
+                                <p className="text-gray-700 dark:text-gray-300 mb-1"><strong>Turma:</strong> {normalizeTurmaChar(completeReportData.aluno.turma)}</p>
+                                <p className="text-gray-700 dark:text-gray-300 mb-1"><strong>Responsável:</strong> {completeReportData.aluno.responsavel}</p>
 
-                        		<h5 className="text-lg font-semibold mb-2 text-gray-900 dark:text-white">Métricas Comparativas:</h5>
-                        		<ul className="list-disc list-inside text-gray-700 dark:text-gray-300 mb-3">
-                        			<li className="font-bold">Percentual de Faltas do(a) Aluno(a): {completeReportData.porcentagemAluno}%</li>
-                        			<li>Média de Faltas da Turma: {completeReportData.porcentagemTurma}%</li>
-                        			<li>Média de Faltas da Escola: {completeReportData.porcentagemEscola}%</li>
-                        		</ul>
+                                {/* NOVIDADE ALERTA/CUIDADOS: Exibe Alertas/Cuidados no modal do relatório */}
+                                {completeReportData.alertasCuidados && (
+                                    <>
+                                        <h5 className="text-lg font-semibold mt-4 mb-2 text-gray-900 dark:text-white">Alertas / Cuidados:</h5>
+                                        <p className="text-gray-700 dark:text-gray-300 mb-3 whitespace-pre-line">{completeReportData.alertasCuidados}</p>
+                                    </>
+                                )}
+                                {/* FIM NOVIDADE ALERTA/CUIDADOS */}
 
-                        		{completeReportData.justificativasNoPeriodo.length > 0 ? (
-                        			<>
-                        				<h5 className="text-lg font-semibold mt-4 mb-2 text-gray-900 dark:text-white">Justificativas de Falta no Período:</h5>
-                        				<ul className="list-disc list-inside text-gray-700 dark:text-gray-300">
-                        					{completeReportData.justificativasNoPeriodo.map((jus, idx) => (
-                        						<li key={idx}><strong>{jus.data}:</strong> {jus.justificativa}</li>
-                        					))}
-                        				</ul>
-                        			</>
-                        		) : (
-                        			<p className="text-gray-700 dark:text-gray-300 mt-4">Nenhuma falta justificada registrada para este(a) aluno(a) no período.</p>
-                        		)}
+                                <h5 className="text-lg font-semibold mb-2 text-gray-900 dark:text-white">Métricas Comparativas:</h5>
+                                <ul className="list-disc list-inside text-gray-700 dark:text-gray-300 mb-3">
+                                    <li className="font-bold">Percentual de Faltas do(a) Aluno(a): {completeReportData.porcentagemAluno}%</li>
+                                    <li>Média de Faltas da Turma: {completeReportData.porcentagemTurma}%</li>
+                                    <li>Média de Faltas da Escola: {completeReportData.porcentagemEscola}%</li>
+                                </ul>
 
-                        		{completeReportData.observacoesAlunoNoPeriodo.length > 0 ? (
-                        			<>
-                        				<h5 className="text-lg font-semibold mt-4 mb-2 text-gray-900 dark:text-white">Observações no Período:</h5>
-                        				<ul className="list-disc list-inside text-gray-700 dark:text-gray-300">
-                        					{completeReportData.observacoesAlunoNoPeriodo.map((obs, idx) => (
-                        						<li key={idx}><strong>{obs.data}:</strong> {obs.observacoes}</li>
-                        					))}
-                        				</ul>
-                        			</>
-                        		) : (
-                        			<p className="text-gray-700 dark:text-gray-300 mt-4">Nenhuma observação registrada para este(a) aluno(a) no período.</p>
-                        		)}
-                        	</div>
+                                {completeReportData.justificativasNoPeriodo.length > 0 ? (
+                                    <>
+                                        <h5 className="text-lg font-semibold mt-4 mb-2 text-gray-900 dark:text-white">Justificativas de Falta no Período:</h5>
+                                        <ul className="list-disc list-inside text-gray-700 dark:text-gray-300">
+                                            {completeReportData.justificativasNoPeriodo.map((jus, idx) => (
+                                                <li key={idx}><strong>{jus.data}:</strong> {jus.justificativa}</li>
+                                            ))}
+                                        </ul>
+                                    </>
+                                ) : (
+                                    <p className="text-gray-700 dark:text-gray-300 mt-4">Nenhuma falta justificada registrada para este(a) aluno(a) no período.</p>
+                                )}
+
+                                {completeReportData.observacoesAlunoNoPeriodo.length > 0 ? (
+                                    <>
+                                        <h5 className="text-lg font-semibold mt-4 mb-2 text-gray-900 dark:text-white">Observações no Período:</h5>
+                                        <ul className="list-disc list-inside text-gray-700 dark:text-gray-300">
+                                            {completeReportData.observacoesAlunoNoPeriodo.map((obs, idx) => (
+                                                <li key={idx}><strong>{obs.data}:</strong> {obs.observacoes}</li>
+                                            ))}
+                                        </ul>
+                                    </>
+                                ) : (
+                                    <p className="text-gray-700 dark:text-gray-300 mt-4">Nenhuma observação registrada para este(a) aluno(a) no período.</p>
+                                )}
+                            </div>
                         </>
                         ) : (
-                        	<p>Carregando dados do relatório...</p>
+                            <p>Carregando dados do relatório...</p>
                         )}
 
                         <div className="flex justify-end mt-6">
-                        	<button
-                        		onClick={() => {
-                        			setShowCompleteReportModal(false);
-                        			setSelectedStudentForReport(null);
-                        			setCompleteReportData(null);
-                        		}}
-                        		className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors duration-200 shadow-md"
-                        	>
-                        		Fechar
-                        	</button>
+                            <button
+                                onClick={() => {
+                                    setShowCompleteReportModal(false);
+                                    setSelectedStudentForReport(null);
+                                    setCompleteReportData(null);
+                                }}
+                                className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors duration-200 shadow-md"
+                            >
+                                Fechar
+                            </button>
                         </div>
                     </div>
                 </div>
