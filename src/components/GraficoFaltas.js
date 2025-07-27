@@ -21,6 +21,7 @@
 // NOVIDADE: Os três gráficos individuais agora começam ocultos por padrão.
 // NOVIDADE DE UI: Botões de exportação PDF movidos para uma linha superior separada.
 // ATUALIZAÇÃO REQUERIDA: Contagem de dias letivos e faltas ajustada para excluir fins de semana e dias não letivos.
+// ATUALIZAÇÃO REQUERIDA: Cálculos de porcentagem de faltas baseados em 100 dias letivos fixos.
 
 import React, { useState, useMemo } from 'react'; // Adicionado useMemo
 import { Bar } from 'react-chartjs-2';
@@ -62,6 +63,7 @@ const GraficoFaltas = ({ registros, dataInicio, dataFim, turmaSelecionada, tipoU
   const cores = ['rgba(75,192,192,0.6)', 'rgba(255,99,132,0.6)', 'rgba(255,206,86,0.6)', 'rgba(54,162,235,0.6)', 'rgba(153,102,255,0.6)', 'rgba(255,159,64,0.6)'];
 
   // NOVIDADE REQUERIDA: Função para calcular os dias letivos reais no período
+  // Esta função ainda é importante para filtrar as faltas/atrasos que ocorreram em dias letivos.
   const getActualSchoolDaysInPeriod = (startDate, endDate, nonSchoolDaysArray) => {
       let count = 0;
       let currentDate = new Date(startDate + 'T00:00:00');
@@ -80,7 +82,7 @@ const GraficoFaltas = ({ registros, dataInicio, dataFim, turmaSelecionada, tipoU
       return count > 0 ? count : 1; // Evita divisão por zero
   };
 
-  // Calcula os dias letivos reais no período selecionado
+  // Calcula os dias letivos reais no período selecionado (usado para filtrar as faltas a serem contadas)
   const actualDaysInSelectedPeriod = useMemo(() => {
       return getActualSchoolDaysInPeriod(dataInicio, dataFim, nonSchoolDays);
   }, [dataInicio, dataFim, nonSchoolDays]);
@@ -103,8 +105,8 @@ const GraficoFaltas = ({ registros, dataInicio, dataFim, turmaSelecionada, tipoU
       const dayOfWeek = dateObj.getDay();
       const isNonSchool = nonSchoolDays.some(day => day.date === data);
 
-      if (data >= dataInicio && data <= dataFim && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchool) { // Considera apenas dias letivos
-        // Agora, apenas conta o total para cada justificativa
+      // Só conta a falta se for um dia letivo (não fim de semana e não dia não letivo)
+      if (data >= dataInicio && data <= dataFim && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchool) {
         contagemTotalPorJustificativa[justificativa] = (contagemTotalPorJustificativa[justificativa] || 0) + 1;
       }
     });
@@ -136,10 +138,10 @@ const GraficoFaltas = ({ registros, dataInicio, dataFim, turmaSelecionada, tipoU
   registros
     .filter(aluno => normalizeTurmaChar(aluno.turma) === normalizeTurmaChar(turmaSelecionada))
     .forEach(aluno => {
-    // totalDiasLetivosAluno agora é o 'actualDaysInSelectedPeriod'
-    const totalDiasLetivosAluno = actualDaysInSelectedPeriod;
+    // NOVIDADE REQUERIDA: A base para a porcentagem do aluno é sempre 100 dias
+    const totalDiasLetivosAlunoBase = 100;
     if (!totalFaltasPorAlunosNaTurmaSelecionada[aluno.nome]) {
-      totalFaltasPorAlunosNaTurmaSelecionada[aluno.nome] = { faltas: 0, totalDiasLetivos: totalDiasLetivosAluno };
+      totalFaltasPorAlunosNaTurmaSelecionada[aluno.nome] = { faltas: 0, totalDiasLetivosBase: totalDiasLetivosAlunoBase };
     }
     if (!aluno.justificativas) return;
 
@@ -149,7 +151,8 @@ const GraficoFaltas = ({ registros, dataInicio, dataFim, turmaSelecionada, tipoU
       const dayOfWeek = dateObj.getDay();
       const isNonSchool = nonSchoolDays.some(day => day.date === data);
 
-      if (data >= dataInicio && data <= dataFim && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchool) { // Considera apenas dias letivos
+      // Só conta a falta se for um dia letivo (não fim de semana e não dia não letivo)
+      if (data >= dataInicio && data <= dataFim && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchool) {
         totalFaltasPorAlunosNaTurmaSelecionada[aluno.nome].faltas += 1;
       }
     });
@@ -157,8 +160,8 @@ const GraficoFaltas = ({ registros, dataInicio, dataFim, turmaSelecionada, tipoU
 
   const porcentagensAlunosNaTurmaSelecionada = Object.keys(totalFaltasPorAlunosNaTurmaSelecionada).map(nomeAluno => {
     const dadosAluno = totalFaltasPorAlunosNaTurmaSelecionada[nomeAluno];
-    // Usa o total de dias letivos real do período para o cálculo da porcentagem
-    const porcentagem = (dadosAluno.faltas / dadosAluno.totalDiasLetivos) * 100;
+    // Usa a base fixa de 100 dias para o cálculo da porcentagem do aluno
+    const porcentagem = (dadosAluno.faltas / dadosAluno.totalDiasLetivosBase) * 100;
     return { nome: nomeAluno, porcentagem: porcentagem.toFixed(2) };
   });
 
@@ -167,29 +170,27 @@ const GraficoFaltas = ({ registros, dataInicio, dataFim, turmaSelecionada, tipoU
   const faltasPorTurma = {};
   turmasDisponiveis.forEach(turma => {
     const turmaNormalizada = normalizeTurmaChar(turma.name);
-    faltasPorTurma[turmaNormalizada] = { faltas: 0, alunos: new Set(), totalDiasLetivos: 0 };
+    faltasPorTurma[turmaNormalizada] = { faltas: 0, alunos: new Set(), totalDiasLetivosBase: 0 };
   });
 
 
   let totalFaltasEscola = 0;
-  // totalDiasLetivosEscola agora é baseado na soma dos actualDaysInSelectedPeriod por aluno ativo
-  let totalDiasLetivosEscolaCalculado = 0;
+  // NOVIDADE REQUERIDA: Base para o cálculo da escola = número de alunos * 100
+  let totalDiasLetivosEscolaBase = 0;
 
   registros.forEach(aluno => {
     const turmaNormalizada = normalizeTurmaChar(aluno.turma);
-    // totalDiasLetivosAluno agora é o 'actualDaysInSelectedPeriod'
-    const totalDiasLetivosAluno = actualDaysInSelectedPeriod;
     
     // Garante que a turma existe no objeto, mesmo que não estivesse nos turmasDisponiveis (caso de dados inconsistentes)
     if (!faltasPorTurma[turmaNormalizada]) {
-      faltasPorTurma[turmaNormalizada] = { faltas: 0, alunos: new Set(), totalDiasLetivos: 0 };
+      faltasPorTurma[turmaNormalizada] = { faltas: 0, alunos: new Set(), totalDiasLetivosBase: 0 };
     }
     faltasPorTurma[turmaNormalizada].alunos.add(aluno.nome);
-    // Adiciona os dias letivos reais do período para cada aluno à contagem da turma
-    faltasPorTurma[turmaNormalizada].totalDiasLetivos += totalDiasLetivosAluno;
+    // NOVIDADE REQUERIDA: Adiciona 100 dias para cada aluno à base da turma
+    faltasPorTurma[turmaNormalizada].totalDiasLetivosBase += 100;
     
-    // Adiciona os dias letivos reais do período para cada aluno à contagem da escola
-    totalDiasLetivosEscolaCalculado += totalDiasLetivosAluno;
+    // NOVIDADE REQUERIDA: Adiciona 100 dias para cada aluno à base da escola
+    totalDiasLetivosEscolaBase += 100;
 
     if (!aluno.justificativas) return;
 
@@ -199,7 +200,8 @@ const GraficoFaltas = ({ registros, dataInicio, dataFim, turmaSelecionada, tipoU
       const dayOfWeek = dateObj.getDay();
       const isNonSchool = nonSchoolDays.some(day => day.date === data);
 
-      if (data >= dataInicio && data <= dataFim && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchool) { // Considera apenas dias letivos
+      // Só conta a falta se for um dia letivo (não fim de semana e não dia não letivo)
+      if (data >= dataInicio && data <= dataFim && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchool) {
         faltasPorTurma[turmaNormalizada].faltas += 1;
         totalFaltasEscola += 1;
       }
@@ -210,8 +212,8 @@ const GraficoFaltas = ({ registros, dataInicio, dataFim, turmaSelecionada, tipoU
   const porcentagensTurmas = Object.keys(faltasPorTurma)
     .map(turma => {
       const dadosTurma = faltasPorTurma[turma];
-      // Usa o total de dias letivos real do período para o cálculo da porcentagem da turma
-      const porcentagem = (dadosTurma.faltas / dadosTurma.totalDiasLetivos) * 100;
+      // Usa a base de 100 dias por aluno para o cálculo da porcentagem da turma
+      const porcentagem = (dadosTurma.faltas / dadosTurma.totalDiasLetivosBase) * 100;
       return { turma, porcentagem: porcentagem.toFixed(2) };
     });
   
@@ -219,7 +221,8 @@ const GraficoFaltas = ({ registros, dataInicio, dataFim, turmaSelecionada, tipoU
   porcentagensTurmas.sort((a, b) => a.turma.localeCompare(b.turma));
 
 
-  const porcentagemEscola = totalDiasLetivosEscolaCalculado > 0 ? ((totalFaltasEscola / totalDiasLetivosEscolaCalculado) * 100).toFixed(2) : 0;
+  // NOVIDADE REQUERIDA: Porcentagem da escola baseada na base total de 100 dias por aluno
+  const porcentagemEscola = totalDiasLetivosEscolaBase > 0 ? ((totalFaltasEscola / totalDiasLetivosEscolaBase) * 100).toFixed(2) : 0;
 
   // --- Dados para os Gráficos ---
   

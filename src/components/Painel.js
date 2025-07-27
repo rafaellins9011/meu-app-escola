@@ -30,6 +30,7 @@
 // CORREÇÃO CRÍTICA: Corrigido erro "null is not iterable" na inicialização de estados.
 // ATUALIZAÇÃO REQUERIDA: Passando flags de data para Tabela.js para bloqueio de ações.
 // NOVIDADE REQUERIDA: Seção "Gerenciar Dias Não Letivos" oculta por padrão com botão de alternância.
+// ATUALIZAÇÃO REQUERIDA: Cálculos de porcentagem de faltas baseados em 100 dias letivos.
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { turmasDisponiveis, monitoresDisponiveis, gestoresDisponiveis } from '../dados'; // Manter para dados estáticos
@@ -534,7 +535,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
             justificativas: justificativasIniciais,
             observacoes: {},
             presencas: {}, // NOVIDADE: Inicializa o campo de presenças como um objeto vazio (todos ausentes por padrão)
-            totalDiasLetivos: 100,
+            totalDiasLetivos: 100, // Mantém este valor como base para cálculos de porcentagem
             ativo: true,
             fotoUrl: '', // NOVIDADE FOTO: Inicializa fotoUrl vazia, será adicionada via CameraModal
             alertasCuidados: alunoParaCadastro.alertasCuidados.trim() // NOVIDADE ALERTA/CUIDADOS: Salva o novo campo
@@ -945,7 +946,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
         };
 
         const img = new Image();
-        img.src = logoUrl;
+        img.src = '/logo-escola.png';
         img.crossOrigin = "Anonymous";
 
         img.onload = () => {
@@ -1276,7 +1277,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
         const startDate = REPORT_START_DATE;
         const start = new Date(startDate);
         const end = new Date(today);
-        let actualDaysInPeriod = 0;
+        let actualDaysInPeriod = 0; // Este é o número real de dias letivos no período selecionado
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
             const dayOfWeek = d.getDay();
             const dateString = d.toISOString().split('T')[0];
@@ -1285,7 +1286,10 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                 actualDaysInPeriod++;
             }
         }
+        // Se não houver dias letivos no período, define como 1 para evitar divisão por zero,
+        // embora a porcentagem de faltas ainda será 0 se não houver faltas.
         if (actualDaysInPeriod === 0) actualDaysInPeriod = 1;
+
         let faltasAluno = 0;
         const alunoJustificativas = aluno.justificativas || {};
         const justificativasNoPeriodo = [];
@@ -1296,13 +1300,16 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
             const dayOfWeek = dateObj.getDay();
             const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === data);
 
+            // Conta faltas apenas em dias letivos dentro do período selecionado
             if (data >= startDate && data <= today && justificativa && justificativa !== "Selecione" && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) {
                 faltasAluno++;
                 justificativasNoPeriodo.push({ data: formatarData(data), justificativa: justificativa.startsWith("Outros: ") ? justificativa.substring(8) : justificativa, });
             }
         });
-        const totalDiasLetivos = aluno.totalDiasLetivos || 100; // Manter este como um valor de referência, mas a contagem real é 'actualDaysInPeriod'
-        const porcentagemAluno = ((faltasAluno / actualDaysInPeriod) * 100).toFixed(2); // Usar actualDaysInPeriod aqui
+
+        // NOVIDADE REQUERIDA: Porcentagem do aluno baseada em 100 dias letivos fixos
+        const porcentagemAluno = ((faltasAluno / 100) * 100).toFixed(2);
+
         let faltasTurma = 0;
         let totalAlunosNaTurma = new Set();
         // NOVIDADE: Para o relatório completo, consideramos apenas os alunos ATIVOS para as médias comparativas da turma/escola.
@@ -1316,6 +1323,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                     const dateObj = new Date(data + 'T00:00:00');
                     const dayOfWeek = dateObj.getDay();
                     const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === data);
+                    // Conta faltas da turma apenas em dias letivos dentro do período selecionado
                     if (data >= startDate && data <= today && justificativa !== "" && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) {
                         faltasTurma++;
                     }
@@ -1323,8 +1331,10 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
             }
         });
         const numAlunosNaTurma = totalAlunosNaTurma.size > 0 ? totalAlunosNaTurma.size : 1;
-        const totalDiasLetivosTurma = numAlunosNaTurma * actualDaysInPeriod; // Usar actualDaysInPeriod aqui
-        const porcentagemTurma = totalDiasLetivosTurma > 0 ? ((faltasTurma / totalDiasLetivosTurma) * 100).toFixed(2) : 0;
+        // NOVIDADE REQUERIDA: Total de dias letivos da turma para porcentagem = número de alunos * 100
+        const totalDiasLetivosTurmaParaPorcentagem = numAlunosNaTurma * 100;
+        const porcentagemTurma = totalDiasLetivosTurmaParaPorcentagem > 0 ? ((faltasTurma / totalDiasLetivosTurmaParaPorcentagem) * 100).toFixed(2) : 0;
+
         let faltasEscola = 0;
         let totalAlunosNaEscola = new Set();
         registros.filter(a => a.ativo).forEach(r => {
@@ -1336,14 +1346,17 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                 const dateObj = new Date(data + 'T00:00:00');
                 const dayOfWeek = dateObj.getDay();
                 const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === data);
+                // Conta faltas da escola apenas em dias letivos dentro do período selecionado
                 if (data >= startDate && data <= today && justificativa !== "" && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) {
                     faltasEscola++;
                 }
             });
         });
         const numAlunosNaEscola = totalAlunosNaEscola.size > 0 ? totalAlunosNaEscola.size : 1;
-        const totalDiasLetivosEscola = numAlunosNaEscola * actualDaysInPeriod; // Usar actualDaysInPeriod aqui
-        const porcentagemEscola = totalDiasLetivosEscola > 0 ? ((faltasEscola / totalDiasLetivosEscola) * 100).toFixed(2) : 0;
+        // NOVIDADE REQUERIDA: Total de dias letivos da escola para porcentagem = número de alunos * 100
+        const totalDiasLetivosEscolaParaPorcentagem = numAlunosNaEscola * 100;
+        const porcentagemEscola = totalDiasLetivosEscolaParaPorcentagem > 0 ? ((faltasEscola / totalDiasLetivosEscolaParaPorcentagem) * 100).toFixed(2) : 0;
+
         const observacoesAlunoNoPeriodo = [];
         Object.entries(aluno.observacoes || {}).forEach(([chave, obsArray]) => {
             const partes = chave.split('_');
@@ -1356,7 +1369,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
         return {
             aluno,
             periodo: `${formatarData(startDate)} a ${formatarData(today)}`,
-            diasLetivosNoPeriodo: actualDaysInPeriod,
+            diasLetivosNoPeriodo: actualDaysInPeriod, // Este valor ainda é útil para saber quantos dias a escola esteve aberta
             faltasAluno,
             porcentagemAluno,
             faltasTurma,

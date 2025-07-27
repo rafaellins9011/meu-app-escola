@@ -1,18 +1,17 @@
 // src/components/GraficoSemanal.js
-import React, { useMemo } from 'react'; // Adicionado useMemo
+import React, { useMemo } from 'react';
 import { Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
   BarElement,
-  LineElement,
-  PointElement,
+  LineElement, // Re-importado
+  PointElement, // Re-importado
   Title,
   Tooltip,
   Legend,
-  // NOVIDADE CRÍTICA AQUI: Importando os controladores de gráfico
-  LineController,
+  LineController, // Re-importado
   BarController,
 } from 'chart.js';
 
@@ -20,13 +19,12 @@ ChartJS.register(
   CategoryScale,
   LinearScale,
   BarElement,
-  LineElement,
-  PointElement,
+  LineElement, // Re-registrado
+  PointElement, // Re-registrado
   Title,
   Tooltip,
   Legend,
-  // NOVIDADE CRÍTICA AQUI: Registrando os controladores de gráfico
-  LineController,
+  LineController, // Re-registrado
   BarController
 );
 
@@ -39,12 +37,13 @@ const getStartOfWeek = (date) => {
   return sunday.toISOString().split('T')[0];
 };
 
+// Função para formatar a data para o label da semana (ex: 22/07)
 const formatarDataLabel = (dataStr) => {
   const [ano, mes, dia] = dataStr.split('-');
   return `${dia}/${mes}`;
 }
 
-// Função para obter todas as datas letivas entre duas datas
+// Função para obter todas as datas letivas entre duas datas (ainda útil para filtrar eventos)
 const getActualSchoolDatesBetween = (startDate, endDate, nonSchoolDaysArray) => {
   const dates = [];
   let currentDate = new Date(startDate + 'T00:00:00');
@@ -63,92 +62,121 @@ const getActualSchoolDatesBetween = (startDate, endDate, nonSchoolDaysArray) => 
   return dates;
 };
 
+// NOVIDADE: Função para obter as datas de início de cada semana letiva no período
+const getUniqueSchoolWeeksInPeriod = (startDate, endDate, nonSchoolDaysArray) => {
+  const weeks = new Set();
+  let currentDate = new Date(startDate + 'T00:00:00');
+  const end = new Date(endDate + 'T00:00:00');
+
+  while (currentDate <= end) {
+    const dateString = currentDate.toISOString().split('T')[0];
+    const dayOfWeek = currentDate.getDay();
+    const isNonSchool = nonSchoolDaysArray.some(day => day.date === dateString);
+
+    // Se for um dia letivo, adiciona o início da semana desse dia ao conjunto de semanas
+    if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchool) {
+      weeks.add(getStartOfWeek(dateString + 'T00:00:00'));
+    }
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+  return Array.from(weeks).sort(); // Retorna as semanas únicas ordenadas
+};
+
+
 const GraficoSemanal = ({
-  registros = [], // MODIFICAÇÃO CHAVE AQUI: Define registros como um array vazio por padrão
+  registros = [],
   chartRef,
   dataInicio = '2025-07-20',
   dataFim = '2025-07-26',
-  nonSchoolDays = [] // NOVA PROP: Recebe a lista de dias não letivos
+  nonSchoolDays = []
 }) => {
-  // Agora 'registros' é garantidamente um array, então .length é seguro
   const totalAlunosMatriculados = registros.length;
-  // Garante que não é zero para evitar divisão por zero nos cálculos de porcentagem
   const alunosParaCalculo = totalAlunosMatriculados > 0 ? totalAlunosMatriculados : 1;
 
   const inicioPeriodo = dataInicio;
   const fimPeriodo = dataFim;
 
-  // Use useMemo para recalcular allDailyLabels apenas quando as dependências mudarem
-  const allDailyLabels = useMemo(() => {
-    return getActualSchoolDatesBetween(inicioPeriodo, fimPeriodo, nonSchoolDays);
+  // NOVIDADE: Agora os labels do gráfico serão as semanas únicas
+  const weeklyLabels = useMemo(() => {
+    return getUniqueSchoolWeeksInPeriod(inicioPeriodo, fimPeriodo, nonSchoolDays);
+  }, [inicioPeriodo, fimPeriodo, nonSchoolDays]);
+
+  // Use allActualSchoolDates para filtrar corretamente as faltas/atrasos
+  const allActualSchoolDates = useMemo(() => {
+      return getActualSchoolDatesBetween(inicioPeriodo, fimPeriodo, nonSchoolDays);
   }, [inicioPeriodo, fimPeriodo, nonSchoolDays]);
 
 
   const faltasPorSemana = {};
   const atrasosPorSemana = {};
-  const faltasPorDia = {};
-  const atrasosPorDia = {};
+  const faltasPorDia = {}; // Re-introduzido
+  const atrasosPorDia = {}; // Re-introduzido
 
-  let totalFaltasPeriodo = 0;
-  let totalAtrasosPeriodo = 0;
+  // Inicializa contadores para cada semana letiva no período
+  weeklyLabels.forEach(weekStart => {
+    faltasPorSemana[weekStart] = 0;
+    atrasosPorSemana[weekStart] = 0;
+  });
 
-  // Inicializa contadores para todos os dias letivos no período
-  allDailyLabels.forEach(date => {
+  // Inicializa contadores para todos os dias letivos no período (para as linhas diárias)
+  allActualSchoolDates.forEach(date => {
     faltasPorDia[date] = 0;
     atrasosPorDia[date] = 0;
   });
 
-  registros.forEach(aluno => { // Agora 'registros' é garantidamente um array
+
+  registros.forEach(aluno => {
+    // Processa justificativas (faltas)
     if (aluno.justificativas) {
       Object.keys(aluno.justificativas).forEach(chave => {
         const dataFalta = chave.split('_')[2];
         // Verifica se a data da falta é um dia letivo dentro do período
-        if (allDailyLabels.includes(dataFalta)) {
-          const semanaDeInicio = getStartOfWeek(dataFalta + 'T00:00:00');
-          faltasPorSemana[semanaDeInicio] = (faltasPorSemana[semanaDeInicio] || 0) + 1;
-          faltasPorDia[dataFalta] = (faltasPorDia[dataFalta] || 0) + 1;
-          totalFaltasPeriodo += 1;
+        if (allActualSchoolDates.includes(dataFalta)) {
+          const weekStart = getStartOfWeek(dataFalta + 'T00:00:00');
+          faltasPorSemana[weekStart] = (faltasPorSemana[weekStart] || 0) + 1;
+          faltasPorDia[dataFalta] = (faltasPorDia[dataFalta] || 0) + 1; // Contagem diária
         }
       });
     }
+    // Processa observações (atrasos)
     if (aluno.observacoes) {
       Object.entries(aluno.observacoes).forEach(([chave, obsArray]) => {
         const dataObs = chave.split('_')[2];
         // Verifica se a data da observação é um dia letivo dentro do período
-        if (allDailyLabels.includes(dataObs)) {
+        if (allActualSchoolDates.includes(dataObs)) {
           if (Array.isArray(obsArray) && obsArray.includes("Chegou atrasado(a).")) {
-            const semanaDeInicio = getStartOfWeek(dataObs + 'T00:00:00');
-            atrasosPorSemana[semanaDeInicio] = (atrasosPorSemana[semanaDeInicio] || 0) + 1;
-            atrasosPorDia[dataObs] = (atrasosPorDia[dataObs] || 0) + 1;
-            totalAtrasosPeriodo += 1;
+            const weekStart = getStartOfWeek(dataObs + 'T00:00:00');
+            atrasosPorSemana[weekStart] = (atrasosPorSemana[weekStart] || 0) + 1;
+            atrasosPorDia[dataObs] = (atrasosPorDia[dataObs] || 0) + 1; // Contagem diária
           }
         }
       });
     }
   });
 
-  const dataFaltasSemanal = allDailyLabels.map(date => {
-    const startOfWeek = getStartOfWeek(date + 'T00:00:00');
-    // Só contabiliza na "semana" se for o primeiro dia letivo daquela semana no período
-    return (date === startOfWeek || !allDailyLabels.includes(getStartOfWeek(date + 'T00:00:00'))) ? (faltasPorSemana[startOfWeek] || 0) : 0;
-  });
+  // Prepara os dados para os datasets do Chart.js
+  const dataFaltasSemanalChart = weeklyLabels.map(weekStart => faltasPorSemana[weekStart] || 0);
+  const dataAtrasosSemanalChart = weeklyLabels.map(weekStart => atrasosPorSemana[weekStart] || 0);
 
-  const dataAtrasosSemanal = allDailyLabels.map(date => {
-    const startOfWeek = getStartOfWeek(date + 'T00:00:00');
-    // Só contabiliza na "semana" se for o primeiro dia letivo daquela semana no período
-    return (date === startOfWeek || !allDailyLabels.includes(getStartOfWeek(date + 'T00:00:00'))) ? (atrasosPorSemana[startOfWeek] || 0) : 0;
-  });
+  // NOVIDADE: Dados diários para as linhas - mapeados para os allActualSchoolDates
+  const dataFaltasDiarioChart = allActualSchoolDates.map(date => faltasPorDia[date] || 0);
+  const dataAtrasosDiarioChart = allActualSchoolDates.map(date => atrasosPorDia[date] || 0);
 
-  const dataFaltasDiario = allDailyLabels.map(date => faltasPorDia[date] || 0);
-  const dataAtrasosDiario = allDailyLabels.map(date => atrasosPorDia[date] || 0);
 
   const data = {
-    labels: allDailyLabels.map(date => formatarDataLabel(date)),
+    labels: allActualSchoolDates.map(date => formatarDataLabel(date)), // Labels são os dias letivos
     datasets: [
       {
         type: 'bar',
         label: 'Faltas por Semana',
-        data: dataFaltasSemanal,
+        // NOVIDADE: Mapeia os dados semanais para as datas diárias.
+        // A barra só terá valor no primeiro dia letivo da semana.
+        data: allActualSchoolDates.map(date => {
+            const weekStart = getStartOfWeek(date + 'T00:00:00');
+            // Verifica se este é o primeiro dia letivo da semana
+            const isFirstSchoolDayOfWeek = allActualSchoolDates.indexOf(date) === allActualSchoolDates.findIndex(d => getStartOfWeek(d + 'T00:00:00') === weekStart);
+            return isFirstSchoolDayOfWeek ? (faltasPorSemana[weekStart] || 0) : 0;
+        }),
         backgroundColor: 'rgba(54, 162, 235, 0.6)',
         borderColor: 'rgba(54, 162, 235, 1)',
         borderWidth: 1,
@@ -174,7 +202,14 @@ const GraficoSemanal = ({
       {
         type: 'bar',
         label: 'Atrasos por Semana',
-        data: dataAtrasosSemanal,
+        // NOVIDADE: Mapeia os dados semanais para as datas diárias.
+        // A barra só terá valor no primeiro dia letivo da semana.
+        data: allActualSchoolDates.map(date => {
+            const weekStart = getStartOfWeek(date + 'T00:00:00');
+            // Verifica se este é o primeiro dia letivo da semana
+            const isFirstSchoolDayOfWeek = allActualSchoolDates.indexOf(date) === allActualSchoolDates.findIndex(d => getStartOfWeek(d + 'T00:00:00') === weekStart);
+            return isFirstSchoolDayOfWeek ? (atrasosPorSemana[weekStart] || 0) : 0;
+        }),
         backgroundColor: 'rgba(255, 206, 86, 0.6)',
         borderColor: 'rgba(255, 206, 86, 1)',
         borderWidth: 1,
@@ -198,9 +233,9 @@ const GraficoSemanal = ({
         }
       },
       {
-        type: 'line',
+        type: 'line', // Re-introduzido
         label: 'Faltas por Dia',
-        data: dataFaltasDiario,
+        data: dataFaltasDiarioChart, // Usa os dados diários
         borderColor: 'rgba(255, 99, 132, 1)',
         backgroundColor: 'rgba(255, 99, 132, 0.2)',
         fill: false,
@@ -227,9 +262,9 @@ const GraficoSemanal = ({
         }
       },
       {
-        type: 'line',
+        type: 'line', // Re-introduzido
         label: 'Atrasos por Dia',
-        data: dataAtrasosDiario,
+        data: dataAtrasosDiarioChart, // Usa os dados diários
         borderColor: 'rgba(75, 192, 192, 1)',
         backgroundColor: 'rgba(75, 192, 192, 0.2)',
         fill: false,
@@ -274,13 +309,15 @@ const GraficoSemanal = ({
     },
     scales: {
       x: {
+        // Assegura que o eixo X não está empilhado, permitindo barras e linhas
         stacked: false,
         title: {
           display: true,
-          text: 'Data'
+          text: 'Data' // Título do eixo X volta a ser 'Data'
         }
       },
       y: {
+        // Assegura que o eixo Y não está empilhado
         stacked: false,
         beginAtZero: true,
         title: {
