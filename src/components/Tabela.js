@@ -22,6 +22,7 @@
 // NOVIDADE RESTRIÇÃO DATA: Chamada permitida apenas até a data presente.
 // NOVIDADE VISIBILIDADE COLUNAS: Adicionados botões para ocultar/mostrar colunas "Contato" e "Responsável".
 // INÍCIO OCULTO: Colunas "Contato" e "Responsável" iniciam ocultas por padrão.
+// ATUALIZAÇÃO REQUERIDA: Bloqueio de ações em dias não letivos, fins de semana e datas futuras.
 
 import React, { useState } from 'react'; // Importar useState
 
@@ -54,7 +55,11 @@ const Tabela = ({
     onAbrirModalFoto,
     onViewPhoto,
     onExcluirFoto,
-    onToggleAllChamada
+    onToggleAllChamada,
+    // NOVAS PROPS PARA CONTROLE DE BLOQUEIO
+    isFutureDate,
+    isWeekend,
+    isSelectedDateNonSchool
 }) => {
     // NOVOS ESTADOS PARA CONTROLAR A VISIBILIDADE DAS COLUNAS
     const [mostrarContato, setMostrarContato] = useState(false); // Inicia oculto
@@ -70,6 +75,7 @@ const Tabela = ({
         "Falta não justificada",
         "Sem retorno",
         "Luto",
+        "Sem contato", // Adicionado vírgula aqui
         "Outros"
     ];
 
@@ -145,9 +151,9 @@ const Tabela = ({
         });
     };
 
-    // Determinar se a data selecionada é uma data futura
-    const todayString = getTodayDateString();
-    const isFutureDate = dataSelecionada > todayString;
+    // Determinar se a data selecionada é uma data futura (já vem de Painel.js)
+    // const todayString = getTodayDateString(); // Removido, pois a prop já vem de Painel.js
+    // const isFutureDate = dataSelecionada > todayString; // Removido, pois a prop já vem de Painel.js
 
     return (
         <div className="overflow-x-auto mt-8 shadow-lg rounded-lg">
@@ -196,16 +202,17 @@ const Tabela = ({
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        if (!isFutureDate) { // Restringe a ação para datas futuras
+                                        // Bloqueia a ação se for data futura, fim de semana ou dia não letivo
+                                        if (!isFutureDate && !isWeekend && !isSelectedDateNonSchool) {
                                             onToggleAllChamada();
                                         } else {
-                                            alert("Não é possível alterar a chamada para datas futuras.");
+                                            alert("Não é possível alterar a chamada para datas futuras, fins de semana ou dias não letivos.");
                                         }
                                     }}
                                     className={`p-1 rounded-full text-white transition-colors duration-200
-                                    ${isFutureDate ? 'bg-gray-400 cursor-not-allowed opacity-50' : 'bg-blue-400 hover:bg-blue-500'}`}
-                                    title={isFutureDate ? "Não é possível alterar a chamada para datas futuras." : "Marcar/Desmarcar todos os alunos para esta data"}
-                                    disabled={isFutureDate} // Desabilita o botão para datas futuras
+                                    ${(isFutureDate || isWeekend || isSelectedDateNonSchool) ? 'bg-gray-400 cursor-not-allowed opacity-50' : 'bg-blue-400 hover:bg-blue-500'}`}
+                                    title={(isFutureDate || isWeekend || isSelectedDateNonSchool) ? "Não é possível alterar a chamada para datas futuras, fins de semana ou dias não letivos." : "Marcar/Desmarcar todos os alunos para esta data"}
+                                    disabled={isFutureDate || isWeekend || isSelectedDateNonSchool} // Desabilita o botão para datas futuras, fins de semana ou dias não letivos
                                     style={{ width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px' }}
                                 >
                                     ✅
@@ -260,8 +267,13 @@ const Tabela = ({
                             const isPresent = aluno.presencas?.[dataSelecionada] === true;
 
                             // NOVIDADE REQUERIDA: Define se a justificativa deve estar desabilitada
-                            // Desabilita se o aluno estiver presente OU se a data for futura
-                            const isJustificativaDisabled = isPresent || isFutureDate;
+                            // Desabilita se o aluno estiver presente OU se a data for futura OU fim de semana OU dia não letivo
+                            const isJustificativaDisabled = isPresent || isFutureDate || isWeekend || isSelectedDateNonSchool;
+                            // NOVIDADE REQUERIDA: Define se o checkbox de presença deve estar desabilitado
+                            const isPresenceCheckboxDisabled = isFutureDate || isWeekend || isSelectedDateNonSchool;
+                            // NOVIDADE REQUERIDA: Define se o botão de observação deve estar desabilitado
+                            const isObservationButtonDisabled = isFutureDate || isWeekend || isSelectedDateNonSchool;
+
 
                             console.log(`Renderizando ${aluno.nome} - Presença (Firestore): ${aluno.presencas?.[dataSelecionada]}, isPresent (checkbox): ${isPresent}`);
 
@@ -270,7 +282,7 @@ const Tabela = ({
                                     key={aluno.id}
                                     onClick={() => onSelecionarLinha(aluno.id)}
                                     className={`border-b border-gray-200 dark:border-gray-700 transition-colors duration-150 cursor-pointer
-                                    ${isSelected
+                                        ${isSelected
                                             ? 'bg-green-200 dark:bg-green-800'
                                             : 'hover:bg-gray-200 dark:hover:bg-gray-600'
                                         }`}
@@ -319,15 +331,15 @@ const Tabela = ({
                                             checked={isPresent}
                                             onChange={(e) => {
                                                 e.stopPropagation();
-                                                if (!isFutureDate) { // Só permite alterar se não for data futura
+                                                if (!isPresenceCheckboxDisabled) { // Só permite alterar se não for dia bloqueado
                                                     handlePresence(aluno);
                                                 } else {
-                                                    alert("Não é possível alterar a chamada para datas futuras.");
+                                                    alert("Não é possível alterar a chamada para datas futuras, fins de semana ou dias não letivos.");
                                                 }
                                             }}
-                                            className={`form-checkbox h-5 w-5 rounded ${isFutureDate ? 'cursor-not-allowed opacity-50' : 'text-blue-600'}`}
-                                            title={isFutureDate ? "Chamada não permitida para datas futuras" : (isPresent ? "Presente" : "Marcar como Presente")}
-                                            disabled={isFutureDate} // Desabilita o checkbox para datas futuras
+                                            className={`form-checkbox h-5 w-5 rounded ${isPresenceCheckboxDisabled ? 'cursor-not-allowed opacity-50' : 'text-blue-600'}`}
+                                            title={isPresenceCheckboxDisabled ? "Chamada não permitida para esta data" : (isPresent ? "Presente" : "Marcar como Presente")}
+                                            disabled={isPresenceCheckboxDisabled} // Desabilita o checkbox para datas futuras, fins de semana ou dias não letivos
                                         />
                                     </td>
                                     <td className="py-3 px-4 text-sm">
@@ -339,7 +351,7 @@ const Tabela = ({
                                                     handleJustificativa(aluno, e.target.value);
                                                 }}
                                                 onClick={(e) => e.stopPropagation()}
-                                                // Desabilita se o aluno estiver presente OU se a data for futura
+                                                // Desabilita se o aluno estiver presente OU se a data for futura OU fim de semana OU dia não letivo
                                                 disabled={isJustificativaDisabled}
                                                 className={`p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600 w-full
                                                 ${isJustificativaDisabled ? 'bg-gray-100 dark:bg-gray-700 cursor-not-allowed opacity-70' : ''}`}
@@ -359,10 +371,17 @@ const Tabela = ({
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                onOpenObservationDropdown(aluno, e)
+                                                if (!isObservationButtonDisabled) { // Só permite abrir se não for dia bloqueado
+                                                    onOpenObservationDropdown(aluno, e)
+                                                } else {
+                                                    alert("Não é possível adicionar/editar observações para datas futuras, fins de semana ou dias não letivos.");
+                                                }
                                             }}
-                                            className={`observation-button p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 w-full text-left ${observacaoAtualDisplay.length > 0 ? 'text-orange-500 dark:text-orange-400' : 'text-gray-900 dark:text-white'}`}
-                                            title="Adicionar/Editar Observação"
+                                            className={`observation-button p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 w-full text-left
+                                            ${observacaoAtualDisplay.length > 0 ? 'text-orange-500 dark:text-orange-400' : 'text-gray-900 dark:text-white'}
+                                            ${isObservationButtonDisabled ? 'bg-gray-100 dark:bg-gray-700 cursor-not-allowed opacity-70' : ''}`}
+                                            title={isObservationButtonDisabled ? "Observações não permitidas para esta data" : "Adicionar/Editar Observação"}
+                                            disabled={isObservationButtonDisabled} // Desabilita o botão para datas futuras, fins de semana ou dias não letivos
                                         >
                                             {observacaoAtualDisplay.length > 0 ? "Observação" : "Selecione"}
                                         </button>

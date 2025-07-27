@@ -24,6 +24,12 @@
 // NOVIDADE REQUERIDA (FINAL): Faltas automaticamente registradas como "Não Apuradas" no Firestore para ausentes.
 // NOVIDADE REQUERIDA: Adicionada coluna de contagem e total de faltas nas exportações de PDF.
 // NOVIDADE REQUERIDA: Relatório de observações dos alunos por período com filtros.
+// ATUALIZAÇÃO REQUERIDA: Botão "Salvar e Enviar" para observações com ícone único.
+// NOVIDADE REQUERIDA: Botão "Salvar e Enviar" combinado, mantendo os botões separados.
+// NOVIDADE REQUERIDA: Funcionalidade para gestores marcarem dias não letivos.
+// CORREÇÃO CRÍTICA: Corrigido erro "null is not iterable" na inicialização de estados.
+// ATUALIZAÇÃO REQUERIDA: Passando flags de data para Tabela.js para bloqueio de ações.
+// NOVIDADE REQUERIDA: Seção "Gerenciar Dias Não Letivos" oculta por padrão com botão de alternância.
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { turmasDisponiveis, monitoresDisponiveis, gestoresDisponiveis } from '../dados'; // Manter para dados estáticos
@@ -37,7 +43,7 @@ import CameraModal from './CameraModal'; // NOVIDADE FOTO: Importado o CameraMod
 
 // NOVIDADE FIRESTORE: Importar db e funções do Firestore
 import { db } from '../firebaseConfig'; // Importa a instância do Firestore
-import { collection, getDocs, doc, setDoc, updateDoc, writeBatch, getDoc, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, updateDoc, writeBatch, getDoc, onSnapshot, deleteDoc, query, orderBy } from 'firebase/firestore'; // Adicionado deleteDoc, query, orderBy
 // Funções Firestore
 
 const formatarData = (dataStr) => {
@@ -71,7 +77,7 @@ const observationMessages = {
     },
     "Cabelo fora do padrão.": {
         title: "**Cabelo fora do padrão.**",
-        getBody: (aluno) => `O corte de cabelo de ${aluno.nome} não está de acordo com as normas estabelecidas pela escola, que exigem o padrão de corte à máquina nº 2 ou nº 3, nas partes parietais e occipitais do crânio, mantendo-se bem nítidos os contornos junto às orelhas e ao pescoço (corte social), conforme o padrão adotado na administração cívico-militar. Solicitamos a gentileza de orientá-lo(a) para que seja seguido o padrão adequado, evitando futuros impedimentos na participação das atividades escolares e formativas.`
+        getBody: (aluno) => `O corte de cabelo de ${aluno.nome} não está de acordo com as normas estabelecidas pela escola, que exigem o padrão de corte à máquina nº 2 ou nº 3, nas partes parietais e occipitais do crânio, mantendo-se bem nítidos os contornos junto às orelhas e ao pescoço (corte social), conforme o padrão adotado na administração cívico-militar. Solicitamos a gentileza de orientá-lo(a) para que seja seguido o padrão adequado, evitando futuros impedimentos na participação na participação das atividades escolares e formativas.`
     },
     "Sem tênis.": {
         title: "**Sem tênis.**",
@@ -166,6 +172,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
     // ESTADOS DA OBSERVAÇÃO
     const [isObservationDropdownOpen, setIsObservationDropdownOpen] = useState(false);
     const [currentAlunoForObservation, setCurrentAlunoForObservation] = useState(null);
+    // CORREÇÃO: Inicializa com useState(new Set())
     const [tempSelectedObservations, setTempSelectedObservations] = useState(new Set());
     const [otherObservationText, setOtherObservationText] = useState('');
 
@@ -212,6 +219,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
     const [termoBuscaTabela, setTermoBuscaTabela] = useState('');
 
     const [termoBuscaInformativa, setTermoBuscaInformativa] = useState('');
+    // CORREÇÃO: Inicializa com useState(null)
     const [alunoInfoEncontrado, setAlunoInfoEncontrado] = useState(null);
 
     // NOVIDADE FIRESTORE: Estado para indicar se os dados estão sendo carregados
@@ -231,11 +239,19 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
     // NOVIDADE EXPORTAÇÃO: Novo estado para controlar a exibição das opções de exportação de PDF
     const [showExportOptions, setShowExportOptions] = useState(false);
 
+    // NOVIDADE REQUERIDA: Estados para gerenciar dias não letivos
+    const [nonSchoolDays, setNonSchoolDays] = useState([]);
+    const [newNonSchoolDayDate, setNewNonSchoolDayDate] = useState('');
+    const [newNonSchoolDayEndDate, setNewNonSchoolDayEndDate] = useState('');
+    const [newNonSchoolDayReason, setNewNonSchoolDayReason] = useState('');
+    // NOVIDADE REQUERIDA: Estado para controlar a visibilidade da seção de dias não letivos
+    const [mostrarGerenciarDiasNaoLetivos, setMostrarGerenciarDiasNaoLetivos] = useState(false);
+
 
     // NOVIDADE FIRESTORE: useEffect para OUVIR dados do Firestore em TEMPO REAL
     useEffect(() => {
         setLoading(true);
-        const unsubscribe = onSnapshot(collection(db, 'alunos'), (querySnapshot) => {
+        const unsubscribeAlunos = onSnapshot(collection(db, 'alunos'), (querySnapshot) => {
             const alunosData = querySnapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data(),
@@ -250,7 +266,25 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
             alert("Erro de conexão em tempo real. Verifique a internet ou as regras do Firestore.");
             setLoading(false);
         });
-        return () => unsubscribe();
+
+        // NOVIDADE REQUERIDA: Ouvir a coleção de dias não letivos
+        const unsubscribeNonSchoolDays = onSnapshot(collection(db, 'nonSchoolDays'), (querySnapshot) => {
+            const daysData = querySnapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
+            setNonSchoolDays(daysData);
+            console.log("Dias não letivos sincronizados com o Firestore em tempo real.");
+        }, (error) => {
+            console.error("Erro ao ouvir dias não letivos do Firestore:", error);
+            alert("Erro ao carregar dias não letivos. Verifique a conexão.");
+        });
+
+
+        return () => {
+            unsubscribeAlunos();
+            unsubscribeNonSchoolDays(); // Limpa o listener dos dias não letivos
+        };
     }, []);
 
     // NOVIDADE REQUERIDA (FINAL): Iniciar faltas como "Falta não apurada" e Ausente no Firestore
@@ -279,6 +313,17 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
             const alunosDaTurma = registros.filter(aluno =>
                 aluno.ativo && normalizeTurmaChar(aluno.turma) === normalizeTurmaChar(turmaSelecionada)
             );
+
+            // NOVIDADE REQUERIDA: Verifica se a data selecionada é um dia não letivo
+            const isSelectedDateNonSchool = nonSchoolDays.some(day => day.date === dataSelecionada);
+            const selectedDateObj = new Date(dataSelecionada + 'T00:00:00');
+            const isWeekend = selectedDateObj.getDay() === 0 || selectedDateObj.getDay() === 6; // 0 = Domingo, 6 = Sábado
+
+            if (isSelectedDateNonSchool || isWeekend) {
+                console.log(`Data selecionada (${dataSelecionada}) é um dia não letivo ou fim de semana. Não inicializando faltas.`);
+                return; // Não inicializa faltas para dias não letivos ou fins de semana
+            }
+
 
             for (const aluno of alunosDaTurma) {
                 const currentPresence = aluno.presencas?.[dataSelecionada];
@@ -318,7 +363,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
         // Chama a função de inicialização
         initializeAbsentAndUnjustified();
 
-    }, [turmaSelecionada, dataSelecionada, registros, loading]); // Depende da turma, data, registros e loading para re-executar
+    }, [turmaSelecionada, dataSelecionada, registros, loading, nonSchoolDays]); // Depende da turma, data, registros, loading e nonSchoolDays para re-executar
 
 
     useEffect(() => { /* Antigo: localStorage.setItem('registros', JSON.stringify(registros)); */ }, [registros]);
@@ -576,6 +621,15 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
             return;
         }
 
+        const selectedDateObj = new Date(dataSelecionada + 'T00:00:00');
+        const isWeekend = selectedDateObj.getDay() === 0 || selectedDateObj.getDay() === 6;
+        const isNonSchoolDay = nonSchoolDays.some(day => day.date === dataSelecionada);
+
+        if (isFutureDate || isWeekend || isNonSchoolDay) {
+            alert("Não é possível alterar a chamada para datas futuras, fins de semana ou dias não letivos.");
+            return;
+        }
+
         // Verifica se *algum* aluno está presente na data selecionada
         const anyPresent = registrosFiltradosParaTabelaEOutros.some(
             aluno => aluno.ativo && aluno.presencas?.[dataSelecionada] === true
@@ -627,7 +681,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
             console.error("Erro ao alternar todos os alunos:", error);
             alert("Erro ao alternar a chamada.");
         }
-    }, [turmaSelecionada, dataSelecionada, registrosFiltradosParaTabelaEOutros, formatarData]);
+    }, [turmaSelecionada, dataSelecionada, registrosFiltradosParaTabelaEOutros, formatarData, nonSchoolDays]);
 
 
     // NOVIDADE FIRESTORE: reiniciarAlertas agora atualiza no Firestore (usando batch, incluindo 'presencas')
@@ -647,9 +701,17 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
                         // NOVIDADE ALERTA/CUIDADOS: Limpa o campo 'alertasCuidados' ao reiniciar alertas
                         batchInstance.update(alunoDocRef, { justificativas: {}, observacoes: {}, presencas: {}, ativo: true, fotoUrl: '', alertasCuidados: '' });
                     });
+
+                    // NOVIDADE REQUERIDA: Limpar também a coleção de dias não letivos
+                    const nonSchoolDaysCollectionRef = collection(db, 'nonSchoolDays');
+                    const nonSchoolDaysSnapshot = await getDocs(nonSchoolDaysCollectionRef);
+                    nonSchoolDaysSnapshot.docs.forEach(docSnapshot => {
+                        batchInstance.delete(doc(db, 'nonSchoolDays', docSnapshot.id));
+                    });
+
                     await batchInstance.commit();
 
-                    alert("Alertas, presenças e fotos reiniciados no Firestore com sucesso!");
+                    alert("Alertas, presenças, fotos e dias não letivos reiniciados no Firestore com sucesso!");
                 } catch (error) {
                     console.error("Erro ao reiniciar alertas no Firestore:", error);
                     alert("Erro ao reiniciar alertas.");
@@ -658,7 +720,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
         } else if (senhaDigitada !== null) { alert("Senha incorreta. Reinício cancelado."); }
     }, [tipoUsuario, senhaUsuario]);
 
-    // NOVIDADE FIRESTORE: handleSaveObservations agora atualiza no Firestore
+    // Função para salvar as observações no Firestore
     const handleSaveObservations = useCallback(async () => {
         if (!currentAlunoForObservation || !currentAlunoForObservation.id) {
             console.error("Erro: Aluno para observação ou ID ausente.");
@@ -693,18 +755,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
         }
     }, [currentAlunoForObservation, tempSelectedObservations, otherObservationText, dataSelecionada, closeObservationDropdown]);
 
-    const enviarWhatsapp = useCallback((aluno) => {
-        const [ano, mes, dia] = dataSelecionada.split('-').map(Number);
-        const dataObj = new Date(ano, mes - 1, dia);
-        const diasSemana = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
-        const diaSemana = dataObj.getDay();
-        const dataFormatada = formatarData(dataSelecionada);
-        const texto = `Olá, ${aluno.responsavel}, informamos que ${aluno.nome} (${normalizeTurmaChar(aluno.turma)}) esteve ausente na escola, na data de hoje ${dataFormatada} (${diasSemana[diaSemana]}). Por favor, justificar a ausência.\n\nLembramos que faltas não justificadas podem resultar em notificações formais, conforme as diretrizes educacionais.\n\nAguardamos seu retorno.\n\nAtenciosamente,\nMonitor(a) ${usuarioLogado}\nEscola Cívico-Militar Profª Ana Maria das Graças de Souza Noronha`;
-        const link = `https://wa.me/55${aluno.contato.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(texto)}`;
-        window.open(link, '_blank');
-    }, [dataSelecionada, usuarioLogado]);
-
-    // --- NOVA FUNÇÃO: ENVIAR MENSAGEM DE OBSERVAÇÃO VIA WHATSAPP ---
+    // Função para enviar mensagem de observação via WhatsApp
     const handleSendObservationWhatsApp = useCallback(() => {
         if (!currentAlunoForObservation || !currentAlunoForObservation.contato) {
             alert("Aluno ou contato do responsável não disponível para enviar mensagem.");
@@ -758,6 +809,26 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
         closeObservationDropdown(); // Fecha o dropdown após enviar
     }, [currentAlunoForObservation, tempSelectedObservations, otherObservationText, dataSelecionada, usuarioLogado, closeObservationDropdown]);
 
+    // NOVIDADE REQUERIDA: Função para Salvar e Enviar as observações
+    const handleSaveAndSendCombined = useCallback(async () => {
+        // Primeiro, salva as observações
+        await handleSaveObservations();
+        // Em seguida, envia a mensagem via WhatsApp
+        handleSendObservationWhatsApp();
+    }, [handleSaveObservations, handleSendObservationWhatsApp]);
+
+
+    const enviarWhatsapp = useCallback((aluno) => {
+        const [ano, mes, dia] = dataSelecionada.split('-').map(Number);
+        const dataObj = new Date(ano, mes - 1, dia);
+        const diasSemana = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+        const diaSemana = dataObj.getDay();
+        const dataFormatada = formatarData(dataSelecionada);
+        const texto = `Olá, ${aluno.responsavel}, informamos que ${aluno.nome} (${normalizeTurmaChar(aluno.turma)}) esteve ausente na escola, na data de hoje ${dataFormatada} (${diasSemana[diaSemana]}). Por favor, justificar a ausência.\n\nLembramos que faltas não justificadas podem resultar em notificações formais, conforme as diretrizes educacionais.\n\nAguardamos seu retorno.\n\nAtenciosamente,\nMonitor(a) ${usuarioLogado}\nEscola Cívico-Militar Profª Ana Maria das Graças de Souza Noronha`;
+        const link = `https://wa.me/55${aluno.contato.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(texto)}`;
+        window.open(link, '_blank');
+    }, [dataSelecionada, usuarioLogado]);
+
 
     // MODIFICADO: exportarPeriodo agora aceita um flag para exportar todas as turmas
     const exportarPeriodo = useCallback((exportAllClasses = false) => {
@@ -801,9 +872,15 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                     // 1. A data da justificativa está dentro do período selecionado.
                     // 2. Se exportAllClasses for true, verifica se a turma do aluno está nas turmas permitidas para o usuário.
                     // 3. Se exportAllClasses for false, verifica se a turma do aluno é a turma selecionada E se está nas turmas permitidas.
+                    // NOVIDADE REQUERIDA: Excluir dias não letivos da contagem de faltas
+                    const isNonSchoolDayEntry = nonSchoolDays.some(day => day.date === data);
+                    const entryDateObj = new Date(data + 'T00:00:00');
+                    const isWeekendEntry = entryDateObj.getDay() === 0 || entryDateObj.getDay() === 6;
+
                     const shouldIncludeEntry = (
                         data >= dataInicio && data <= dataFim &&
-                        (exportAllClasses ? turmasDoUsuario.includes(turmaAlunoNormalizada) : (turmaAlunoNormalizada === normalizeTurmaChar(turmaSelecionada) && turmasDoUsuario.includes(turmaAlunoNormalizada)))
+                        (exportAllClasses ? turmasDoUsuario.includes(turmaAlunoNormalizada) : (turmaAlunoNormalizada === normalizeTurmaChar(turmaSelecionada) && turmasDoUsuario.includes(turmaAlunoNormalizada))) &&
+                        !isNonSchoolDayEntry && !isWeekendEntry // Excluir dias não letivos e fins de semana
                     );
 
                     if (shouldIncludeEntry) {
@@ -890,7 +967,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
             yOffset += 15;
             addContentToDoc();
         };
-    }, [dataInicio, dataFim, usuarioLogado, tipoUsuario, registros, turmasPermitidas, turmaSelecionada]);
+    }, [dataInicio, dataFim, usuarioLogado, tipoUsuario, registros, turmasPermitidas, turmaSelecionada, nonSchoolDays]);
 
     // NOVIDADE: Função para exportar a chamada por período
     const exportarChamadaPeriodoPDF = useCallback(async () => {
@@ -949,7 +1026,14 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
         const tempEndDate = new Date(dataFim + 'T00:00:00');
 
         while (tempCurrentDate <= tempEndDate) {
-            allDatesInPeriod.add(tempCurrentDate.toISOString().split('T')[0]);
+            const dateString = tempCurrentDate.toISOString().split('T')[0];
+            const dayOfWeek = tempCurrentDate.getDay();
+            const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === dateString);
+
+            // Inclui a data apenas se não for fim de semana e não for um dia não letivo
+            if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) {
+                allDatesInPeriod.add(dateString);
+            }
             tempCurrentDate.setDate(tempCurrentDate.getDate() + 1);
         }
 
@@ -962,7 +1046,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
         alunosDaTurmaAtivos.forEach(aluno => {
             if (aluno.presencas) {
                 Object.entries(aluno.presencas).forEach(([dateString, isPresent]) => {
-                    // Verifica se a presença é 'true' E se a data está dentro do período selecionado
+                    // Verifica se a presença é 'true' E se a data está dentro do período selecionado e é um dia letivo
                     if (isPresent === true && allDatesInPeriod.has(dateString)) {
                         datesWithPresence.add(dateString);
                     }
@@ -1019,7 +1103,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
         doc.save(`chamada_turma_${normalizeTurmaChar(turmaSelecionada)}_${dataInicio}_a_${dataFim}.pdf`);
         alert('Chamada por período exportada com sucesso!');
 
-    }, [dataInicio, dataFim, turmaSelecionada, registros, formatarData]);
+    }, [dataInicio, dataFim, turmaSelecionada, registros, formatarData, nonSchoolDays]);
 
 
     // NOVIDADE EXPORTAÇÃO GRÁFICO: Função para exportar o GraficoSemanal como PDF
@@ -1195,7 +1279,9 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
         let actualDaysInPeriod = 0;
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
             const dayOfWeek = d.getDay();
-            if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+            const dateString = d.toISOString().split('T')[0];
+            const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === dateString);
+            if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) { // Excluir fins de semana e dias não letivos
                 actualDaysInPeriod++;
             }
         }
@@ -1206,13 +1292,17 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
         Object.entries(alunoJustificativas).forEach(([chave, justificativa]) => {
             const partes = chave.split('_');
             const data = partes[2];
-            if (data >= startDate && data <= today && justificativa && justificativa !== "Selecione") {
+            const dateObj = new Date(data + 'T00:00:00');
+            const dayOfWeek = dateObj.getDay();
+            const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === data);
+
+            if (data >= startDate && data <= today && justificativa && justificativa !== "Selecione" && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) {
                 faltasAluno++;
                 justificativasNoPeriodo.push({ data: formatarData(data), justificativa: justificativa.startsWith("Outros: ") ? justificativa.substring(8) : justificativa, });
             }
         });
-        const totalDiasLetivos = aluno.totalDiasLetivos || 100;
-        const porcentagemAluno = ((faltasAluno / totalDiasLetivos) * 100).toFixed(2);
+        const totalDiasLetivos = aluno.totalDiasLetivos || 100; // Manter este como um valor de referência, mas a contagem real é 'actualDaysInPeriod'
+        const porcentagemAluno = ((faltasAluno / actualDaysInPeriod) * 100).toFixed(2); // Usar actualDaysInPeriod aqui
         let faltasTurma = 0;
         let totalAlunosNaTurma = new Set();
         // NOVIDADE: Para o relatório completo, consideramos apenas os alunos ATIVOS para as médias comparativas da turma/escola.
@@ -1223,14 +1313,17 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                 Object.entries(rJustificativas).forEach(([chave, justificativa]) => {
                     const partes = chave.split('_');
                     const data = partes[2];
-                    if (data >= startDate && data <= today && justificativa !== "") {
+                    const dateObj = new Date(data + 'T00:00:00');
+                    const dayOfWeek = dateObj.getDay();
+                    const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === data);
+                    if (data >= startDate && data <= today && justificativa !== "" && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) {
                         faltasTurma++;
                     }
                 });
             }
         });
         const numAlunosNaTurma = totalAlunosNaTurma.size > 0 ? totalAlunosNaTurma.size : 1;
-        const totalDiasLetivosTurma = numAlunosNaTurma * actualDaysInPeriod;
+        const totalDiasLetivosTurma = numAlunosNaTurma * actualDaysInPeriod; // Usar actualDaysInPeriod aqui
         const porcentagemTurma = totalDiasLetivosTurma > 0 ? ((faltasTurma / totalDiasLetivosTurma) * 100).toFixed(2) : 0;
         let faltasEscola = 0;
         let totalAlunosNaEscola = new Set();
@@ -1240,13 +1333,16 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
             Object.entries(rJustificativas).forEach(([chave, justificativa]) => {
                 const partes = chave.split('_');
                 const data = partes[2];
-                if (data >= startDate && data <= today && justificativa !== "") {
+                const dateObj = new Date(data + 'T00:00:00');
+                const dayOfWeek = dateObj.getDay();
+                const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === data);
+                if (data >= startDate && data <= today && justificativa !== "" && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) {
                     faltasEscola++;
                 }
             });
         });
         const numAlunosNaEscola = totalAlunosNaEscola.size > 0 ? totalAlunosNaEscola.size : 1;
-        const totalDiasLetivosEscola = numAlunosNaEscola * actualDaysInPeriod;
+        const totalDiasLetivosEscola = numAlunosNaEscola * actualDaysInPeriod; // Usar actualDaysInPeriod aqui
         const porcentagemEscola = totalDiasLetivosEscola > 0 ? ((faltasEscola / totalDiasLetivosEscola) * 100).toFixed(2) : 0;
         const observacoesAlunoNoPeriodo = [];
         Object.entries(aluno.observacoes || {}).forEach(([chave, obsArray]) => {
@@ -1271,7 +1367,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
             justificativasNoPeriodo,
             alertasCuidados: aluno.alertasCuidados || '' // NOVIDADE ALERTA/CUIDADOS: Passa o alerta/cuidado para o relatório
         };
-    }, [registros]);
+    }, [registros, nonSchoolDays]);
     const handleAbrirRelatorioAluno = useCallback((aluno) => { const reportData = calculateCompleteReport(aluno); setCompleteReportData(reportData); setSelectedStudentForReport(aluno); setShowCompleteReportModal(true); }, [calculateCompleteReport]);
     const exportCompleteReportPDF = useCallback(() => {
         if (!completeReportData) { alert('Não há dados de relatório para exportar.'); return; }
@@ -1381,7 +1477,12 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
 
                 Object.keys(novasJustificativas).forEach(chave => {
                     const dataDaFalta = chave.split('_')[2];
-                    if (dataDaFalta >= recomporDataInicio && dataDaFalta <= recomporDataFim) {
+                    const dateObj = new Date(dataDaFalta + 'T00:00:00');
+                    const dayOfWeek = dateObj.getDay();
+                    const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === dataDaFalta);
+
+                    // Só remove a justificativa se o dia for letivo (não fim de semana e não dia não letivo)
+                    if (dataDaFalta >= recomporDataInicio && dataDaFalta <= recomporDataFim && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) {
                         delete novasJustificativas[chave];
                     }
                 });
@@ -1396,7 +1497,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                 alert("Erro ao recompor faltas.");
             }
         }
-    }, [alunoParaRecompor, recomporDataInicio, recomporDataFim]);
+    }, [alunoParaRecompor, recomporDataInicio, recomporDataFim, nonSchoolDays]);
 
     const handleBuscaInformativa = (e) => {
         const termo = e.target.value.toLowerCase();
@@ -1456,7 +1557,11 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                 if (shouldIncludeStudent && aluno.observacoes) {
                     Object.entries(aluno.observacoes).forEach(([chave, obsArray]) => {
                         const dataObs = chave.split('_')[2];
-                        if (dataObs && dataObs >= dataInicio && dataObs <= dataFim) {
+                        const dateObj = new Date(dataObs + 'T00:00:00');
+                        const dayOfWeek = dateObj.getDay();
+                        const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === dataObs);
+
+                        if (dataObs && dataObs >= dataInicio && dataObs <= dataFim && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) { // Só inclui observações de dias letivos
                             // Filtra as observações com base nos tipos selecionados
                             const filteredObsForEntry = obsArray.filter(obs => {
                                 if (selectedObservationTypesToExport.has("Outros")) {
@@ -1538,7 +1643,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
             yOffset += 15;
             addContentToDoc();
         };
-    }, [dataInicio, dataFim, selectedObservationTypesToExport, exportObservationScope, turmaSelecionada, registros, turmasPermitidas]);
+    }, [dataInicio, dataFim, selectedObservationTypesToExport, exportObservationScope, turmaSelecionada, registros, turmasPermitidas, nonSchoolDays]);
 
     // Lógica para fechar o modal de observação ao clicar fora
     useEffect(() => {
@@ -1562,6 +1667,88 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
             return newSet;
         });
     }, []);
+
+    // NOVIDADE REQUERIDA: Funções para gerenciar dias não letivos
+    const handleAddNonSchoolDay = useCallback(async () => {
+        if (!newNonSchoolDayDate && !newNonSchoolDayEndDate) {
+            alert('Por favor, selecione uma data de início ou um período completo.');
+            return;
+        }
+        if (!newNonSchoolDayReason.trim()) {
+            alert('Por favor, insira um motivo para o(s) dia(s) não letivo(s).');
+            return;
+        }
+
+        const batch = writeBatch(db);
+        const nonSchoolDaysCollectionRef = collection(db, 'nonSchoolDays');
+
+        if (newNonSchoolDayDate && !newNonSchoolDayEndDate) { // Single day
+            const existingDay = nonSchoolDays.find(d => d.date === newNonSchoolDayDate);
+            if (existingDay) {
+                alert(`O dia ${formatarData(newNonSchoolDayDate)} já está registrado como não letivo.`);
+                return;
+            }
+            const docRef = doc(nonSchoolDaysCollectionRef);
+            batch.set(docRef, { date: newNonSchoolDayDate, reason: newNonSchoolDayReason.trim() });
+        } else if (newNonSchoolDayDate && newNonSchoolDayEndDate) { // Date range
+            let currentDate = new Date(newNonSchoolDayDate + 'T00:00:00');
+            const endDate = new Date(newNonSchoolDayEndDate + 'T00:00:00');
+
+            if (currentDate > endDate) {
+                alert('A data de início não pode ser posterior à data de fim.');
+                return;
+            }
+
+            let daysAdded = 0;
+            while (currentDate <= endDate) {
+                const dateString = currentDate.toISOString().split('T')[0];
+                const existingDay = nonSchoolDays.find(d => d.date === dateString);
+                if (!existingDay) {
+                    const docRef = doc(nonSchoolDaysCollectionRef);
+                    batch.set(docRef, { date: dateString, reason: newNonSchoolDayReason.trim() });
+                    daysAdded++;
+                }
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+            if (daysAdded === 0) {
+                alert('Todos os dias no período selecionado já estão registrados como não letivos.');
+                return;
+            }
+        } else {
+            alert('Por favor, insira uma data de início.');
+            return;
+        }
+
+        try {
+            await batch.commit();
+            alert('Dia(s) não letivo(s) adicionado(s) com sucesso!');
+            setNewNonSchoolDayDate('');
+            setNewNonSchoolDayEndDate('');
+            setNewNonSchoolDayReason('');
+        } catch (error) {
+            console.error("Erro ao adicionar dia não letivo:", error);
+            alert("Erro ao adicionar dia não letivo.");
+        }
+    }, [newNonSchoolDayDate, newNonSchoolDayEndDate, newNonSchoolDayReason, nonSchoolDays]);
+
+    const handleRemoveNonSchoolDay = useCallback(async (id, date) => {
+        if (window.confirm(`Tem certeza que deseja remover o dia não letivo ${formatarData(date)}?`)) {
+            try {
+                await deleteDoc(doc(db, 'nonSchoolDays', id));
+                alert('Dia não letivo removido com sucesso!');
+            } catch (error) {
+                console.error("Erro ao remover dia não letivo:", error);
+                alert("Erro ao remover dia não letivo.");
+            }
+        }
+    }, []);
+
+    // Determinar se a data selecionada é uma data futura
+    const todayString = getTodayDateString();
+    const isFutureDate = dataSelecionada > todayString;
+    const selectedDateObj = new Date(dataSelecionada + 'T00:00:00');
+    const isWeekend = selectedDateObj.getDay() === 0 || selectedDateObj.getDay() === 6; // 0 = Domingo, 6 = Sábado
+    const isSelectedDateNonSchool = nonSchoolDays.some(day => day.date === dataSelecionada);
 
 
     return (
@@ -1640,8 +1827,88 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                 </div>
             )}
 
+            {/* NOVIDADE REQUERIDA: Botão para alternar a visibilidade da seção de dias não letivos */}
+            {tipoUsuario === 'gestor' && (
+                <div className="mt-5 mb-5 flex items-center gap-4">
+                    <button
+                        onClick={() => setMostrarGerenciarDiasNaoLetivos(!mostrarGerenciarDiasNaoLetivos)}
+                        className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors duration-200 shadow-md"
+                    >
+                        {mostrarGerenciarDiasNaoLetivos ? '➖ Ocultar Gerenciar Dias Não Letivos' : '➕ Gerenciar Dias Não Letivos'}
+                    </button>
+                </div>
+            )}
+
+            {/* NOVIDADE REQUERIDA: Seção para Gestores gerenciarem dias não letivos (condicional) */}
+            {tipoUsuario === 'gestor' && mostrarGerenciarDiasNaoLetivos && (
+                <div className="mt-8 border border-gray-300 p-6 rounded-lg shadow-lg bg-white dark:bg-gray-800 dark:border-gray-700">
+                    <h4 className="text-xl font-semibold mb-4">Gerenciar Dias Não Letivos</h4>
+                    <div className="flex flex-wrap items-center gap-4 mb-4">
+                        <div>
+                            <label htmlFor="non-school-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Data (Início)</label>
+                            <input
+                                type="date"
+                                id="non-school-date"
+                                value={newNonSchoolDayDate}
+                                onChange={e => setNewNonSchoolDayDate(e.target.value)}
+                                className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                            />
+                        </div>
+                        <div>
+                            <label htmlFor="non-school-end-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Data (Fim, opcional)</label>
+                            <input
+                                type="date"
+                                id="non-school-end-date"
+                                value={newNonSchoolDayEndDate}
+                                onChange={e => setNewNonSchoolDayEndDate(e.target.value)}
+                                className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                            />
+                        </div>
+                        <div className="flex-grow">
+                            <label htmlFor="non-school-reason" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Motivo</label>
+                            <input
+                                type="text"
+                                id="non-school-reason"
+                                placeholder="Ex: Feriado, Recesso, Greve"
+                                value={newNonSchoolDayReason}
+                                onChange={e => setNewNonSchoolDayReason(e.target.value)}
+                                className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                            />
+                        </div>
+                        <button onClick={handleAddNonSchoolDay} className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors duration-200 shadow-md self-end">
+                            Adicionar
+                        </button>
+                    </div>
+
+                    <h5 className="text-lg font-semibold mt-4 mb-2 text-gray-900 dark:text-white">Dias Não Letivos Registrados:</h5>
+                    {nonSchoolDays.length === 0 ? (
+                        <p className="text-gray-500 dark:text-gray-400">Nenhum dia não letivo registrado.</p>
+                    ) : (
+                        <ul className="list-disc list-inside space-y-1 max-h-40 overflow-y-auto pr-2">
+                            {nonSchoolDays.sort((a,b) => a.date.localeCompare(b.date)).map(day => (
+                                <li key={day.id} className="flex justify-between items-center text-gray-700 dark:text-gray-300">
+                                    <span>{formatarData(day.date)} - {day.reason}</span>
+                                    <button
+                                        onClick={() => handleRemoveNonSchoolDay(day.id, day.date)}
+                                        className="ml-2 px-2 py-1 rounded-lg bg-red-500 text-white text-xs hover:bg-red-600 transition-colors duration-200 shadow-sm"
+                                    >
+                                        Remover
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+            )}
+            {/* Fim da seção de dias não letivos */}
+
             <h3 className="text-xl font-semibold mb-2 mt-8">Data da chamada:</h3>
             <input type="date" value={dataSelecionada} onChange={e => setDataSelecionada(e.target.value)} className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" />
+            {(isWeekend || isSelectedDateNonSchool) && (
+                <p className="text-red-500 text-sm mt-1">
+                    ⚠️ Esta data é um {isWeekend ? 'fim de semana' : 'dia não letivo'} e não será considerada para a chamada.
+                </p>
+            )}
 
             <h3 className="text-xl font-semibold mt-5 mb-2">Selecionar Turma:</h3>
             <select value={turmaSelecionada} onChange={e => setTurmaSelecionada(e.target.value)} className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600">
@@ -1785,6 +2052,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                                 registros={registros} // Recebe TODOS os registros (ativos e inativos)
                                 dataInicio={dataInicio}
                                 dataFim={dataFim}
+                                nonSchoolDays={nonSchoolDays} // NOVIDADE REQUERIDA: Passa os dias não letivos
                             />
                         </div>
                     )}
@@ -1798,6 +2066,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                                 turmaSelecionada={turmaSelecionada}
                                 tipoUsuario={tipoUsuario}
                                 turmasPermitidas={turmasPermitidas()}
+                                nonSchoolDays={nonSchoolDays} // NOVIDADE REQUERIDA: Passa os dias não letivos
                             />
                         </div>
                     )}
@@ -1818,7 +2087,12 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                         onAbrirModalFoto={handleOpenModalFoto}
                         onViewPhoto={handleViewPhoto}
                         onExcluirFoto={handleExcluirFoto}
+                        // NOVIDADE: Passa as flags de data para a Tabela
+                        isFutureDate={isFutureDate}
+                        isWeekend={isWeekend}
+                        isSelectedDateNonSchool={isSelectedDateNonSchool}
                         onToggleAllChamada={handleToggleAllChamada} // NOVIDADE: Passa a função de alternar tudo para Tabela.js
+                        nonSchoolDays={nonSchoolDays} // NOVIDADE REQUERIDA: Passa os dias não letivos
                     />
 
                     {editandoAluno !== null && (
@@ -1891,9 +2165,16 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                             <div className="flex justify-end space-x-2 mt-3">
                                 <button onClick={closeObservationDropdown} className="px-3 py-1 rounded-lg bg-red-500 text-white text-xs hover:bg-red-600 transition-colors duration-200 shadow-sm">Cancelar</button>
                                 <button onClick={handleSaveObservations} className="px-3 py-1 rounded-lg bg-green-500 text-white text-xs hover:bg-green-600 transition-colors duration-200 shadow-sm">Salvar</button>
-                                {/* NOVO BOTÃO: ENVIAR MENSAGEM VIA WHATSAPP */}
                                 <button onClick={handleSendObservationWhatsApp} className="px-3 py-1 rounded-lg bg-teal-500 text-white text-xs hover:bg-teal-600 transition-colors duration-200 shadow-sm">
                                     Enviar Mensagem (WhatsApp)
+                                </button>
+                                {/* NOVO BOTÃO: Salvar e Enviar com apenas um símbolo */}
+                                <button
+                                    onClick={handleSaveAndSendCombined}
+                                    className="px-3 py-1 rounded-lg bg-blue-500 text-white text-xs hover:bg-blue-600 transition-colors duration-200 shadow-sm"
+                                    title="Salvar e Enviar via WhatsApp"
+                                >
+                                    💾📲
                                 </button>
                             </div>
                         </div>
@@ -2005,7 +2286,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                                     Recompor Faltas de: {alunoParaRecompor.nome}
                                 </h3>
                                 <p className="mb-4 text-gray-600 dark:text-gray-300">
-                                    Selecióne o período para limpar as justificativas deste(a) aluno(a). Esta ação é útil para abonar faltas após a recomposição de aprendizagem.
+                                    Selecione o período para limpar as justificativas deste(a) aluno(a). Esta ação é útil para abonar faltas após a recomposição de aprendizagem.
                                 </p>
                                 <div className="flex items-center gap-4 mb-4">
                                     <div>

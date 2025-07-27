@@ -1,5 +1,5 @@
 // src/components/GraficoSemanal.js
-import React from 'react';
+import React, { useMemo } from 'react'; // Adicionado useMemo
 import { Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -44,15 +44,20 @@ const formatarDataLabel = (dataStr) => {
   return `${dia}/${mes}`;
 }
 
-// Função para obter todas as datas entre duas datas
-const getDatesBetween = (startDate, endDate) => {
+// Função para obter todas as datas letivas entre duas datas
+const getActualSchoolDatesBetween = (startDate, endDate, nonSchoolDaysArray) => {
   const dates = [];
-  // Adiciona 'T00:00:00' para evitar problemas com fuso horário
   let currentDate = new Date(startDate + 'T00:00:00');
   const end = new Date(endDate + 'T00:00:00');
 
   while (currentDate <= end) {
-    dates.push(currentDate.toISOString().split('T')[0]);
+    const dateString = currentDate.toISOString().split('T')[0];
+    const dayOfWeek = currentDate.getDay(); // 0 = Sunday, 6 = Saturday
+    const isNonSchool = nonSchoolDaysArray.some(day => day.date === dateString);
+
+    if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchool) { // Exclui fins de semana e dias não letivos
+      dates.push(dateString);
+    }
     currentDate.setDate(currentDate.getDate() + 1);
   }
   return dates;
@@ -62,7 +67,8 @@ const GraficoSemanal = ({
   registros = [], // MODIFICAÇÃO CHAVE AQUI: Define registros como um array vazio por padrão
   chartRef,
   dataInicio = '2025-07-20',
-  dataFim = '2025-07-26'
+  dataFim = '2025-07-26',
+  nonSchoolDays = [] // NOVA PROP: Recebe a lista de dias não letivos
 }) => {
   // Agora 'registros' é garantidamente um array, então .length é seguro
   const totalAlunosMatriculados = registros.length;
@@ -72,6 +78,12 @@ const GraficoSemanal = ({
   const inicioPeriodo = dataInicio;
   const fimPeriodo = dataFim;
 
+  // Use useMemo para recalcular allDailyLabels apenas quando as dependências mudarem
+  const allDailyLabels = useMemo(() => {
+    return getActualSchoolDatesBetween(inicioPeriodo, fimPeriodo, nonSchoolDays);
+  }, [inicioPeriodo, fimPeriodo, nonSchoolDays]);
+
+
   const faltasPorSemana = {};
   const atrasosPorSemana = {};
   const faltasPorDia = {};
@@ -80,8 +92,7 @@ const GraficoSemanal = ({
   let totalFaltasPeriodo = 0;
   let totalAtrasosPeriodo = 0;
 
-  const allDailyLabels = getDatesBetween(inicioPeriodo, fimPeriodo);
-
+  // Inicializa contadores para todos os dias letivos no período
   allDailyLabels.forEach(date => {
     faltasPorDia[date] = 0;
     atrasosPorDia[date] = 0;
@@ -91,7 +102,8 @@ const GraficoSemanal = ({
     if (aluno.justificativas) {
       Object.keys(aluno.justificativas).forEach(chave => {
         const dataFalta = chave.split('_')[2];
-        if (dataFalta && dataFalta >= inicioPeriodo && dataFalta <= fimPeriodo) {
+        // Verifica se a data da falta é um dia letivo dentro do período
+        if (allDailyLabels.includes(dataFalta)) {
           const semanaDeInicio = getStartOfWeek(dataFalta + 'T00:00:00');
           faltasPorSemana[semanaDeInicio] = (faltasPorSemana[semanaDeInicio] || 0) + 1;
           faltasPorDia[dataFalta] = (faltasPorDia[dataFalta] || 0) + 1;
@@ -102,7 +114,8 @@ const GraficoSemanal = ({
     if (aluno.observacoes) {
       Object.entries(aluno.observacoes).forEach(([chave, obsArray]) => {
         const dataObs = chave.split('_')[2];
-        if (dataObs && dataObs >= inicioPeriodo && dataObs <= fimPeriodo) {
+        // Verifica se a data da observação é um dia letivo dentro do período
+        if (allDailyLabels.includes(dataObs)) {
           if (Array.isArray(obsArray) && obsArray.includes("Chegou atrasado(a).")) {
             const semanaDeInicio = getStartOfWeek(dataObs + 'T00:00:00');
             atrasosPorSemana[semanaDeInicio] = (atrasosPorSemana[semanaDeInicio] || 0) + 1;
@@ -116,12 +129,14 @@ const GraficoSemanal = ({
 
   const dataFaltasSemanal = allDailyLabels.map(date => {
     const startOfWeek = getStartOfWeek(date + 'T00:00:00');
-    return date === startOfWeek ? (faltasPorSemana[startOfWeek] || 0) : 0;
+    // Só contabiliza na "semana" se for o primeiro dia letivo daquela semana no período
+    return (date === startOfWeek || !allDailyLabels.includes(getStartOfWeek(date + 'T00:00:00'))) ? (faltasPorSemana[startOfWeek] || 0) : 0;
   });
 
   const dataAtrasosSemanal = allDailyLabels.map(date => {
     const startOfWeek = getStartOfWeek(date + 'T00:00:00');
-    return date === startOfWeek ? (atrasosPorSemana[startOfWeek] || 0) : 0;
+    // Só contabiliza na "semana" se for o primeiro dia letivo daquela semana no período
+    return (date === startOfWeek || !allDailyLabels.includes(getStartOfWeek(date + 'T00:00:00'))) ? (atrasosPorSemana[startOfWeek] || 0) : 0;
   });
 
   const dataFaltasDiario = allDailyLabels.map(date => faltasPorDia[date] || 0);
@@ -285,6 +300,9 @@ const GraficoSemanal = ({
       <Bar ref={chartRef} data={data} options={options} />
       <div className="mt-4 text-center">
         <p className="text-lg font-semibold">Total de Alunos Matriculados: <span className="text-blue-600">{totalAlunosMatriculados}</span></p>
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+            (Apenas dias letivos e não-fins de semana são considerados)
+        </p>
       </div>
     </div>
   );
