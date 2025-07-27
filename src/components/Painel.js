@@ -37,6 +37,8 @@
 // CORREÇÃO ERRO: Removido variável intermediária 'otherJustificativasNoPeriodo' para resolver ReferenceError.
 // ATUALIZAÇÃO REQUERIDA: dataFim padrão é a data atual.
 // NOVIDADE REQUERIDA: Funcionalidade de download de relatórios por turma em arquivo ZIP.
+// ATUALIZAÇÃO REQUERIDA: Botão de download ZIP visível apenas para gestores.
+// CORREÇÃO CRÍTICA: Ajuste na lógica de contagem de faltas e justificativas no relatório para refletir a limpeza ao marcar presença.
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { turmasDisponiveis, monitoresDisponiveis, gestoresDisponiveis } from '../dados'; // Manter para dados estáticos
@@ -947,31 +949,26 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
             const registrosConsiderados = registros.filter(a => a.ativo);
 
             registrosConsiderados.forEach((aluno) => {
-                if (!aluno.justificativas) return;
-
-                Object.entries(aluno.justificativas).forEach(([chave, justificativa]) => {
+                const alunoJustificativas = aluno.justificativas || {};
+                Object.entries(alunoJustificativas).forEach(([chave, justificativa]) => {
                     const partes = chave.split('_');
                     const data = partes[2]; // Formato YYYY-MM-DD para fácil comparação
                     const turmaAlunoNormalizada = normalizeTurmaChar(aluno.turma);
 
                     const turmasDoUsuario = turmasPermitidas(); // Pega as turmas que o usuário logado pode ver
 
-                    // Critério de inclusão:
-                    // 1. A data da justificativa está dentro do período selecionado.
-                    // 2. Se exportAllClasses for true, verifica se a turma do aluno está nas turmas permitidas para o usuário.
-                    // 3. Se exportAllClasses for false, verifica se a turma do aluno é a turma selecionada E se está nas turmas permitidas.
-                    // NOVIDADE REQUERIDA: Excluir dias não letivos da contagem de faltas
+                    // NOVIDADE REQUERIDA: A falta só é contada se a presença for false/undefined E a justificativa não for vazia
+                    const isPresentForDate = aluno.presencas?.[data] === true;
                     const isNonSchoolDayEntry = nonSchoolDays.some(day => day.date === data);
                     const entryDateObj = new Date(data + 'T00:00:00');
                     const isWeekendEntry = entryDateObj.getDay() === 0 || entryDateObj.getDay() === 6;
-
-                    // NOVIDADE REQUERIDA: Incluir faltas anteriores à matrícula no relatório de faltas gerais
                     const isHistoricalAbsence = justificativa === "Falta anterior à matrícula";
+
 
                     const shouldIncludeEntry = (
                         data >= dataInicio && data <= dataFim &&
                         (exportAllClasses ? turmasDoUsuario.includes(turmaAlunoNormalizada) : (turmaAlunoNormalizada === normalizeTurmaChar(turmaSelecionada) && turmasDoUsuario.includes(turmaAlunoNormalizada))) &&
-                        (isHistoricalAbsence || (!isNonSchoolDayEntry && !isWeekendEntry)) // Inclui faltas históricas OU faltas em dias letivos
+                        (isHistoricalAbsence || (!isPresentForDate && justificativa && justificativa !== "" && !isNonSchoolDayEntry && !isWeekendEntry))
                     );
 
                     if (shouldIncludeEntry) {
@@ -1389,16 +1386,20 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
             const dateObj = new Date(data + 'T00:00:00');
             const dayOfWeek = dateObj.getDay();
             const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === data);
+            const isPresentForDate = aluno.presencas?.[data] === true; // Verifica o status de presença para a data
 
-            // Conta todas as faltas registradas que são de dias letivos ou faltas anteriores à matrícula
-            if ((dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) || justificativa === "Falta anterior à matrícula") {
+            // CORREÇÃO: A falta só é contada se a presença for false/undefined E a justificativa não for vazia
+            // OU se for uma falta anterior à matrícula (que não tem status de presença)
+            if (justificativa === "Falta anterior à matrícula") {
+                faltasAluno++;
+            } else if (!isPresentForDate && justificativa && justificativa !== "" && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) {
                 faltasAluno++;
             }
 
             // NOVIDADE REQUERIDA: Para o relatório detalhado, consolida "Falta anterior à matrícula"
             if (justificativa === "Falta anterior à matrícula") {
                 countFaltasAnteriores++;
-            } else if (data >= matriculaDate && data <= today && justificativa && justificativa !== "Selecione" && (dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate)) {
+            } else if (data >= matriculaDate && data <= today && justificativa && justificativa !== "" && (dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate)) {
                 justificativasNoPeriodo.push({ data: formatarData(data), justificativa: justificativa.startsWith("Outros: ") ? justificativa.substring(8) : justificativa });
             }
         });
@@ -1449,9 +1450,12 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                     const dateObj = new Date(data + 'T00:00:00');
                     const dayOfWeek = dateObj.getDay();
                     const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === data);
+                    const isPresentForDate = r.presencas?.[data] === true; // Verifica o status de presença para a data
 
-                    // Conta faltas da turma que são de dias letivos ou faltas anteriores à matrícula
-                    if ((dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) || justificativa === "Falta anterior à matrícula") {
+                    // CORREÇÃO: A falta só é contada se a presença for false/undefined E a justificativa não for vazia
+                    if (justificativa === "Falta anterior à matrícula") {
+                        faltasTurma++;
+                    } else if (!isPresentForDate && justificativa && justificativa !== "" && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) {
                         faltasTurma++;
                     }
                 });
@@ -1474,9 +1478,12 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                 const dateObj = new Date(data + 'T00:00:00');
                 const dayOfWeek = dateObj.getDay();
                 const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === data);
+                const isPresentForDate = r.presencas?.[data] === true; // Verifica o status de presença para a data
 
-                // Conta faltas da escola que são de dias letivos ou faltas anteriores à matrícula
-                if ((dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) || justificativa === "Falta anterior à matrícula") {
+                // CORREÇÃO: A falta só é contada se a presença for false/undefined E a justificativa não for vazia
+                if (justificativa === "Falta anterior à matrícula") {
+                    faltasEscola++;
+                } else if (!isPresentForDate && justificativa && justificativa !== "" && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) {
                     faltasEscola++;
                 }
             });
@@ -1521,7 +1528,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                     const imgHeight = (img.height * imgWidth) / img.width;
                     const xImg = (pageWidth - imgWidth) / 2;
                     // MODIFICAÇÃO: Usar 'JPEG' com qualidade para a foto do aluno
-                    doc.addImage(img, 'JPEG', xImg, yOffset, imgWidth, imgHeight, null, 'FAST'); // 'FAST' para otimização
+                    doc.addImage(img, 'JPEG', xImg, yOffset, imgWidth, imgHeight, null, 'FAST');
                     yOffset += imgHeight + 5;
                     continuePdfContent();
                 };
@@ -1551,9 +1558,9 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                     doc.text('Alertas / Cuidados:', 14, yOffset);
                     yOffset += 5;
                     doc.setFontSize(10);
-                    const splitText = doc.splitTextToSize(completeReportData.alertasCuidados, pageWidth - 28); // Quebra o texto para caber na largura
+                    const splitText = doc.splitTextToSize(completeReportData.alertasCuidados, pageWidth - 28);
                     doc.text(splitText, 14, yOffset);
-                    yOffset += (splitText.length * 5) + 5; // Aumenta o yOffset com base no número de linhas do texto
+                    yOffset += (splitText.length * 5) + 5;
                 }
                 yOffset += 10;
                 doc.setFontSize(12);
@@ -1571,10 +1578,9 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                     doc.setFontSize(12);
                     doc.text('Justificativas de Falta no Período:', 14, finalY);
                     finalY += 5;
-                    // NOVIDADE REQUERIDA: Exibe as justificativas consolidadas ou individuais
                     const jusBody = completeReportData.justificativasNoPeriodo.map(jus => [jus.data, jus.justificativa]);
                     autoTable(doc, { startY: finalY, head: [['Data', 'Justificativa']], body: jusBody, styles: { fontSize: 8 }, headStyles: { fillColor: [37, 99, 235] } });
-                    finalY = doc.lastAutoTable.finalY;
+                    finalY = pdf.lastAutoTable.finalY;
                 }
                 if (completeReportData.observacoesAlunoNoPeriodo.length > 0) {
                     doc.setFontSize(12);
@@ -2269,7 +2275,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
             </div>
             {/* Fim do novo mecanismo de busca informativa */}
 
-            {tipoUsuario === 'gestor' && (
+            {tipoUsuario === 'gestor' && ( // Apenas gestores podem ver o botão de download ZIP
                 <div className="mt-5 mb-5 flex flex-wrap gap-3 items-center">
                     <button onClick={() => setShowZipModal(true)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors duration-200 shadow-md" disabled={isDownloading}>
                         {isDownloading ? 'Baixando...' : '🗃️ Baixar Relatórios em ZIP'}
@@ -2503,7 +2509,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                                     className="px-3 py-1 rounded-lg bg-blue-500 text-white text-xs hover:bg-blue-600 transition-colors duration-200 shadow-sm"
                                     title="Salvar e Enviar via WhatsApp"
                                 >
-                                    💾📲
+                                    Salvar e Enviar via WhatsApp
                                 </button>
                             </div>
                         </div>

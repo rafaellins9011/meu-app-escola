@@ -25,7 +25,7 @@
 // ATUALIZAÇÃO REQUERIDA: Bloqueio de ações em dias não letivos, fins de semana e datas futuras.
 // NOVIDADE REQUERIDA: Bloqueio de ações em datas anteriores à dataMatricula do aluno.
 // ATUALIZAÇÃO REQUERIDA: Ao marcar presença, a justificativa é automaticamente redefinida para "Selecione".
-// CORREÇÃO REQUERIDA: A justificativa sempre exibirá "Selecione" se o aluno estiver presente.
+// CORREÇÃO REQUERIDA: A justificativa sempre exibirá "Selecione" se o aluno estiver presente, e a lógica de limpeza foi ajustada.
 
 import React, { useState } from 'react'; // Importar useState
 
@@ -108,8 +108,10 @@ const Tabela = ({
             }
         };
 
+        // Se a justificativa for limpa (motivoFinal é ""), remove a chave do objeto no Firestore.
+        // Isso é importante para que o Firestore não armazene strings vazias desnecessariamente
+        // e para que a lógica de "Selecione" funcione corretamente.
         if (motivoFinal === "") {
-            // Se a justificativa for limpa, remove a chave do objeto justificativas
             delete atualizado.justificativas[chave];
         }
 
@@ -119,32 +121,31 @@ const Tabela = ({
 
     const handlePresence = (aluno) => {
         const dataAtual = dataSelecionada;
-        const currentPresence = aluno.presencas?.[dataAtual];
-
         let newPresencas = { ...aluno.presencas };
         let newJustificativas = { ...aluno.justificativas };
         const chaveJustificativa = `${aluno.nome}_${normalizeTurmaChar(aluno.turma)}_${dataAtual}`;
 
-        // A nova presença será o inverso da atual
-        const nextPresenceState = !currentPresence;
+        const nextPresenceState = !newPresencas[dataAtual]; // Obtém o próximo estado da presença
 
         newPresencas[dataAtual] = nextPresenceState;
 
-        // Se o aluno for marcado como PRESENTE, limpa a justificativa
         if (nextPresenceState === true) {
-            newJustificativas[chaveJustificativa] = ""; // Define explicitamente como string vazia
+            // Se o aluno for marcado como PRESENTE, a justificativa DEVE ser limpa.
+            // Definimos como string vazia para que o dropdown mostre "Selecione" e o Firestore não armazene a justificativa.
+            newJustificativas[chaveJustificativa] = "";
             console.log(`handlePresence: Justificativa limpa para ${aluno.nome} em ${dataAtual} porque foi marcado como PRESENTE.`);
-        } else { // Se o aluno for marcado como AUSENTE (ou não marcado inicialmente)
-            // E não houver uma justificativa já existente, define como "Falta não apurada"
-            if (!newJustificativas[chaveJustificativa] || newJustificativas[chaveJustificativa] === "Selecione" || newJustificativas[chaveJustificativa] === "") {
+        } else { // Se o aluno for marcado como AUSENTE (ou desmarcado de presente)
+            // Se não houver uma justificativa específica já definida, define como "Falta não apurada"
+            // Isso cobre casos onde estava "Selecione" (string vazia) ou não existia.
+            if (!newJustificativas[chaveJustificativa] || newJustificativas[chaveJustificativa] === "") {
                 newJustificativas[chaveJustificativa] = "Falta não apurada";
                 console.log(`handlePresence: Definida justificativa "Falta não apurada" para ${aluno.nome} em ${dataAtual}.`);
             }
+            // Se já havia uma justificativa específica (ex: "Problema de saúde"), ela é mantida.
         }
 
         console.log(`handlePresence: Aluno ${aluno.nome}, Data ${dataAtual} - Marcado como ${newPresencas[dataAtual] ? 'PRESENTE (true)' : 'AUSENTE (false)'}`);
 
-        // Atualiza tanto as presenças quanto as justificativas (se houver alteração)
         onAtualizar(aluno.id, {
             ...aluno,
             presencas: newPresencas,
@@ -236,9 +237,9 @@ const Tabela = ({
                             const isPresent = aluno.presencas?.[dataSelecionada] === true; // Determina a presença real
 
                             let justificativaDropdownValue;
-                            // CORREÇÃO: Se o aluno está presente, a justificativa DEVE ser "Selecione".
+                            // CORREÇÃO: Se o aluno está presente, a justificativa DEVE ser "Selecione" (string vazia).
                             if (isPresent) {
-                                justificativaDropdownValue = "Selecione";
+                                justificativaDropdownValue = "Selecione"; // Mapeia para string vazia no onChange
                             } else if (justificativaAtualCompleta) {
                                 justificativaDropdownValue = justificativaAtualCompleta;
                             } else {
@@ -343,7 +344,7 @@ const Tabela = ({
                                     <td className="py-3 px-4 text-sm">
                                         <div className="tooltip-container">
                                             <select
-                                                value={justificativaDropdownDisplay}
+                                                value={justificativaDropdownValue} /* CORREÇÃO AQUI: Usar justificativaDropdownValue */
                                                 onChange={(e) => {
                                                     e.stopPropagation();
                                                     handleJustificativa(aluno, e.target.value);

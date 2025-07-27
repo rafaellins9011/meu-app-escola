@@ -130,8 +130,10 @@ const GraficoSemanal = ({
     if (aluno.justificativas) {
       Object.keys(aluno.justificativas).forEach(chave => {
         const dataFalta = chave.split('_')[2];
-        // Verifica se a data da falta é um dia letivo dentro do período
-        if (allActualSchoolDates.includes(dataFalta)) {
+        const isPresentForDate = aluno.presencas?.[dataFalta] === true; // Verifica o status de presença
+
+        // CORREÇÃO: Só conta a falta se a data for um dia letivo *E* o aluno não estiver presente
+        if (allActualSchoolDates.includes(dataFalta) && !isPresentForDate) {
           const weekStart = getStartOfWeek(dataFalta + 'T00:00:00');
           faltasPorSemana[weekStart] = (faltasPorSemana[weekStart] || 0) + 1;
           faltasPorDia[dataFalta] = (faltasPorDia[dataFalta] || 0) + 1; // Contagem diária

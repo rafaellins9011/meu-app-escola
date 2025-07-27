@@ -23,6 +23,7 @@
 // ATUALIZAÇÃO REQUERIDA: Contagem de dias letivos e faltas ajustada para excluir fins de semana e dias não letivos.
 // ATUALIZAÇÃO REQUERIDA: Cálculos de porcentagem de faltas baseados em 100 dias letivos fixos.
 // ATUALIZAÇÃO REQUERIDA: Removida a explicação do cálculo da porcentagem da escola.
+// CORREÇÃO CRÍTICA: A contagem de faltas agora verifica explicitamente `aluno.presencas[data] === false` ou `undefined`.
 
 import React, { useState, useMemo } from 'react'; // Adicionado useMemo
 import { Bar } from 'react-chartjs-2';
@@ -91,7 +92,7 @@ const GraficoFaltas = ({ registros, dataInicio, dataFim, turmaSelecionada, tipoU
 
   // Filtra os registros para o gráfico de justificativa (ainda baseado na turma selecionada)
   const registrosParaGraficoJustificativa = registros.filter(aluno =>
-    normalizeTurmaChar(aluno.turma) === normalizeTurmaChar(turmaSelecionada)
+    aluno.ativo && normalizeTurmaChar(aluno.turma) === normalizeTurmaChar(turmaSelecionada)
   );
 
   // --- Cálculos para Gráfico de Faltas por Justificativa (na Turma) ---
@@ -105,9 +106,11 @@ const GraficoFaltas = ({ registros, dataInicio, dataFim, turmaSelecionada, tipoU
       const dateObj = new Date(data + 'T00:00:00');
       const dayOfWeek = dateObj.getDay();
       const isNonSchool = nonSchoolDays.some(day => day.date === data);
+      const isPresentForDate = aluno.presencas?.[data] === true; // Verifica o status de presença para a data
 
-      // Só conta a falta se for um dia letivo (não fim de semana e não dia não letivo)
-      if (data >= dataInicio && data <= dataFim && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchool) {
+      // CORREÇÃO: Só conta a falta se a presença for false/undefined E a justificativa não for vazia
+      // OU se for uma falta anterior à matrícula (que não tem status de presença)
+      if (data >= dataInicio && data <= dataFim && (justificativa === "Falta anterior à matrícula" || (!isPresentForDate && justificativa && justificativa !== "" && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchool))) {
         contagemTotalPorJustificativa[justificativa] = (contagemTotalPorJustificativa[justificativa] || 0) + 1;
       }
     });
@@ -151,9 +154,11 @@ const GraficoFaltas = ({ registros, dataInicio, dataFim, turmaSelecionada, tipoU
       const dateObj = new Date(data + 'T00:00:00');
       const dayOfWeek = dateObj.getDay();
       const isNonSchool = nonSchoolDays.some(day => day.date === data);
+      const isPresentForDate = aluno.presencas?.[data] === true; // Verifica o status de presença para a data
 
-      // Só conta a falta se for um dia letivo (não fim de semana e não dia não letivo)
-      if (data >= dataInicio && data <= dataFim && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchool) {
+      // CORREÇÃO: Só conta a falta se a presença for false/undefined E a justificativa não for vazia
+      // OU se for uma falta anterior à matrícula
+      if (data >= dataInicio && data <= dataFim && (justificativa === "Falta anterior à matrícula" || (!isPresentForDate && justificativa && justificativa !== "" && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchool))) {
         totalFaltasPorAlunosNaTurmaSelecionada[aluno.nome].faltas += 1;
       }
     });
@@ -200,9 +205,13 @@ const GraficoFaltas = ({ registros, dataInicio, dataFim, turmaSelecionada, tipoU
       const dateObj = new Date(data + 'T00:00:00');
       const dayOfWeek = dateObj.getDay();
       const isNonSchool = nonSchoolDays.some(day => day.date === data);
+      const isPresentForDate = aluno.presencas?.[data] === true; // Verifica o status de presença para a data
 
-      // Só conta a falta se for um dia letivo (não fim de semana e não dia não letivo)
-      if (data >= dataInicio && data <= dataFim && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchool) {
+      // CORREÇÃO: A falta só é contada se a presença for false/undefined E a justificativa não for vazia
+      if (justificativa === "Falta anterior à matrícula") {
+        faltasPorTurma[turmaNormalizada].faltas += 1;
+        totalFaltasEscola += 1;
+      } else if (!isPresentForDate && justificativa && justificativa !== "" && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchool) {
         faltasPorTurma[turmaNormalizada].faltas += 1;
         totalFaltasEscola += 1;
       }
