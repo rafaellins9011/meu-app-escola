@@ -309,15 +309,13 @@ const GraficoSemanal = ({
     },
     scales: {
       x: {
-        // Assegura que o eixo X não está empilhado, permitindo barras e linhas
         stacked: false,
         title: {
           display: true,
-          text: 'Data' // Título do eixo X volta a ser 'Data'
+          text: 'Data'
         }
       },
       y: {
-        // Assegura que o eixo Y não está empilhado
         stacked: false,
         beginAtZero: true,
         title: {
@@ -337,9 +335,7 @@ const GraficoSemanal = ({
       <Bar ref={chartRef} data={data} options={options} />
       <div className="mt-4 text-center">
         <p className="text-lg font-semibold">Total de Alunos Matriculados: <span className="text-blue-600">{totalAlunosMatriculados}</span></p>
-        <p className="text-sm text-gray-600 dark:text-gray-400">
-            (Apenas dias letivos e não-fins de semana são considerados)
-        </p>
+        {/* REMOVIDA: A linha de explicação do cálculo */}
       </div>
     </div>
   );

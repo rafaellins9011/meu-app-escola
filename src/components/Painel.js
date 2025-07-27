@@ -31,6 +31,12 @@
 // ATUALIZAÇÃO REQUERIDA: Passando flags de data para Tabela.js para bloqueio de ações.
 // NOVIDADE REQUERIDA: Seção "Gerenciar Dias Não Letivos" oculta por padrão com botão de alternância.
 // ATUALIZAÇÃO REQUERIDA: Cálculos de porcentagem de faltas baseados em 100 dias letivos.
+// NOVIDADE REQUERIDA: Campo dataMatricula e cálculo de faltas anteriores/presenças baseado nela, bloqueio de datas anteriores.
+// ATUALIZAÇÃO REQUERIDA: Incluir "Falta anterior à matrícula" na lista detalhada de justificativas no relatório do aluno de forma consolidada.
+// ATUALIZAÇÃO REQUERIDA: No Relatório de Chamada, datas anteriores à matrícula são marcadas com '*' e não contadas.
+// CORREÇÃO ERRO: Removido variável intermediária 'otherJustificativasNoPeriodo' para resolver ReferenceError.
+// ATUALIZAÇÃO REQUERIDA: dataFim padrão é a data atual.
+// NOVIDADE REQUERIDA: Funcionalidade de download de relatórios por turma em arquivo ZIP.
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { turmasDisponiveis, monitoresDisponiveis, gestoresDisponiveis } from '../dados'; // Manter para dados estáticos
@@ -41,6 +47,9 @@ import GraficoFaltas from './GraficoFaltas';
 import GraficoSemanal from './GraficoSemanal';
 import html2canvas from 'html2canvas';
 import CameraModal from './CameraModal'; // NOVIDADE FOTO: Importado o CameraModal
+import JSZip from 'jszip'; // NOVIDADE: Importando biblioteca para criar arquivos ZIP
+import { saveAs } from 'file-saver'; // NOVIDADE: Importando biblioteca para salvar arquivos
+import ZipDownloadModal from './ZipDownloadModal'; // NOVIDADE: Importando o novo modal de download ZIP
 
 // NOVIDADE FIRESTORE: Importar db e funções do Firestore
 import { db } from '../firebaseConfig'; // Importa a instância do Firestore
@@ -68,6 +77,10 @@ const getTodayDateString = () => {
 const normalizeTurmaChar = (turma) => {
     return String(turma).replace(/°/g, 'º');
 };
+
+// NOVIDADE REQUERIDA: Data de início do registro no sistema
+const REPORT_START_DATE = '2025-07-22';
+
 
 // --- MENSAGENS PREDEFINIDAS PARA OBSERVAÇÕES ---
 // Cada entrada contém o título em negrito para o WhatsApp (usando **) e uma função que retorna o corpo da mensagem.
@@ -153,19 +166,23 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
     const [dataSelecionada, setDataSelecionada] = useState(() => getTodayDateString());
     const [editandoAluno, setEditandoAluno] = useState(null);
     // NOVIDADE ALERTA/CUIDADOS: Adicionado 'alertasCuidados' ao estado 'novoAluno'
-    const [novoAluno, setNovoAluno] = useState({ nome: '', turma: '', contato: '', responsavel: '', monitor: '', alertasCuidados: '' });
+    // NOVIDADE REQUERIDA: Adicionado dataMatricula ao estado novoAluno
+    const [novoAluno, setNovoAluno] = useState({ nome: '', turma: '', contato: '', responsavel: '', monitor: '', alertasCuidados: '', dataMatricula: '' });
 
     const [dataInicio, setDataInicio] = useState('2025-07-22');
-    const [dataFim, setDataFim] = useState('2025-07-26');
+    // ATUALIZAÇÃO REQUERIDA: dataFim padrão é a data atual
+    const [dataFim, setDataFim] = useState(() => getTodayDateString());
 
+    // NOVIDADE REQUERIDA: Adicionado dataMatricula e atualizado faltasAnteriores para ser apenas um número
     const [alunoParaCadastro, setAlunoParaCadastro] = useState({
         nome: '',
         turma: '',
         contato: '',
         responsavel: '',
         monitor: '',
-        faltasAnteriores: 0,
-        alertasCuidados: '' // NOVIDADE ALERTA/CUIDADOS: Adicionado ao estado de cadastro
+        faltasAnteriores: 0, // Número de faltas a serem registradas antes da matrícula
+        alertasCuidados: '',
+        dataMatricula: getTodayDateString() // Padrão para a data atual
     });
     const [mostrarFormularioCadastro, setMostrarFormularioCadastro] = useState(false);
     const schoolHeaderRef = useRef(null);
@@ -207,11 +224,15 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
     const [exportObservationScope, setExportObservationScope] = useState('turma'); // 'turma' ou 'allTurmas'
     const observationExportModalRef = useRef(null); // Ref para fechar o modal ao clicar fora
 
+    // NOVIDADE REQUERIDA: Estados para o modal de download ZIP
+    const [showZipModal, setShowZipModal] = useState(false);
+    const [selectedClassesForZip, setSelectedClassesForZip] = useState([]);
+    const [isDownloading, setIsDownloading] = useState(false);
+
 
     const [showCompleteReportModal, setShowCompleteReportModal] = useState(false);
     const [selectedStudentForReport, setSelectedStudentForReport] = useState(null);
     const [completeReportData, setCompleteReportData] = useState(null);
-    const REPORT_START_DATE = '2025-07-22';
     const [linhaSelecionada, setLinhaSelecionada] = useState(null);
     const [isRecomporModalOpen, setIsRecomporModalOpen] = useState(false);
     const [alunoParaRecompor, setAlunoParaRecompor] = useState(null);
@@ -257,7 +278,8 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
                 id: doc.id,
                 ...doc.data(),
                 ativo: doc.data().ativo ?? true,
-                alertasCuidados: doc.data().alertasCuidados ?? '' // NOVIDADE ALERTA/CUIDADOS: Inicializa com string vazia
+                alertasCuidados: doc.data().alertasCuidados ?? '',
+                dataMatricula: doc.data().dataMatricula || REPORT_START_DATE // NOVIDADE REQUERIDA: Garante dataMatricula
             }));
             setRegistros(alunosData); // Atualiza o estado com os novos dados recebidos
             setLoading(false);
@@ -287,6 +309,25 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
             unsubscribeNonSchoolDays(); // Limpa o listener dos dias não letivos
         };
     }, []);
+
+    // NOVIDADE REQUERIDA: Função para obter todas as datas letivas entre duas datas
+    const getActualSchoolDatesBetween = useCallback((startDate, endDate, nonSchoolDaysArray) => {
+        const dates = [];
+        let currentDate = new Date(startDate + 'T00:00:00');
+        const end = new Date(endDate + 'T00:00:00');
+
+        while (currentDate <= end) {
+            const dateString = currentDate.toISOString().split('T')[0];
+            const dayOfWeek = currentDate.getDay(); // 0 = Sunday, 6 = Saturday
+            const isNonSchool = nonSchoolDaysArray.some(day => day.date === dateString);
+
+            if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchool) { // Exclui fins de semana e dias não letivos
+                dates.push(dateString);
+            }
+            currentDate.setDate(currentDate.getDate() + 1);
+        }
+        return dates;
+    }, [nonSchoolDays]); // Depende de nonSchoolDays
 
     // NOVIDADE REQUERIDA (FINAL): Iniciar faltas como "Falta não apurada" e Ausente no Firestore
     useEffect(() => {
@@ -325,8 +366,13 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
                 return; // Não inicializa faltas para dias não letivos ou fins de semana
             }
 
-
             for (const aluno of alunosDaTurma) {
+                // NOVIDADE REQUERIDA: Não inicializa faltas para datas anteriores à matrícula do aluno
+                if (dataSelecionada < aluno.dataMatricula) {
+                    console.log(`Data selecionada (${dataSelecionada}) é anterior à matrícula do aluno ${aluno.nome}. Não inicializando faltas.`);
+                    continue;
+                }
+
                 const currentPresence = aluno.presencas?.[dataSelecionada];
                 const chaveJustificativa = `${aluno.nome}_${normalizeTurmaChar(aluno.turma)}_${dataSelecionada}`;
                 const currentJustificativa = aluno.justificativas?.[chaveJustificativa];
@@ -510,20 +556,32 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
         return contadorAtrasos;
     }, [registros, dataInicio, dataFim]);
 
-    // NOVIDADE FIRESTORE: handleCadastrarAluno agora salva no Firestore (incluindo campo 'presencas' e 'alertasCuidados')
+    // NOVIDADE REQUERIDA: handleCadastrarAluno agora considera dataMatricula e faltasAnteriores
     const handleCadastrarAluno = useCallback(async (e) => {
         e.preventDefault();
-        if (!alunoParaCadastro.nome || !alunoParaCadastro.turma || !alunoParaCadastro.contato || !alunoParaCadastro.responsavel || !alunoParaCadastro.monitor) {
+        if (!alunoParaCadastro.nome || !alunoParaCadastro.turma || !alunoParaCadastro.contato || !alunoParaCadastro.responsavel || !alunoParaCadastro.monitor || !alunoParaCadastro.dataMatricula) {
             alert('Por favor, preencha todos os campos obrigatórios para cadastrar o(a) aluno(a).');
             return;
         }
 
         const justificativasIniciais = {};
+        const presencasIniciais = {};
         const numFaltasAnteriores = parseInt(alunoParaCadastro.faltasAnteriores, 10) || 0;
+        const dataMatriculaObj = new Date(alunoParaCadastro.dataMatricula + 'T00:00:00');
+        const reportStartDateObj = new Date(REPORT_START_DATE + 'T00:00:00');
 
-        for (let i = 0; i < numFaltasAnteriores; i++) {
-            const chaveFalta = `${alunoParaCadastro.nome}_${normalizeTurmaChar(alunoParaCadastro.turma)}_${REPORT_START_DATE}_hist_${i}`;
-            justificativasIniciais[chaveFalta] = "Falta anterior à matrícula";
+        // Pega todos os dias letivos entre REPORT_START_DATE e dataMatricula (exclusiva)
+        const schoolDaysBeforeMatricula = getActualSchoolDatesBetween(REPORT_START_DATE, new Date(dataMatriculaObj.getTime() - (24 * 60 * 60 * 1000)).toISOString().split('T')[0], nonSchoolDays);
+
+        let faltasContabilizadas = 0;
+        for (const date of schoolDaysBeforeMatricula) {
+            if (faltasContabilizadas < numFaltasAnteriores) {
+                justificativasIniciais[`${alunoParaCadastro.nome}_${normalizeTurmaChar(alunoParaCadastro.turma)}_${date}`] = "Falta anterior à matrícula";
+                presencasIniciais[date] = false;
+                faltasContabilizadas++;
+            } else {
+                presencasIniciais[date] = true; // Marca como presente se não for uma falta anterior
+            }
         }
 
         const novoRegistroData = { // Dados que serão salvos no Firestore
@@ -534,11 +592,12 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
             monitor: alunoParaCadastro.monitor,
             justificativas: justificativasIniciais,
             observacoes: {},
-            presencas: {}, // NOVIDADE: Inicializa o campo de presenças como um objeto vazio (todos ausentes por padrão)
+            presencas: presencasIniciais, // NOVIDADE: Inicializa o campo de presenças
             totalDiasLetivos: 100, // Mantém este valor como base para cálculos de porcentagem
             ativo: true,
             fotoUrl: '', // NOVIDADE FOTO: Inicializa fotoUrl vazia, será adicionada via CameraModal
-            alertasCuidados: alunoParaCadastro.alertasCuidados.trim() // NOVIDADE ALERTA/CUIDADOS: Salva o novo campo
+            alertasCuidados: alunoParaCadastro.alertasCuidados.trim(),
+            dataMatricula: alunoParaCadastro.dataMatricula // NOVIDADE REQUERIDA: Salva a data de matrícula
         };
 
         try {
@@ -546,13 +605,13 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
             await setDoc(docRef, novoRegistroData); // Salva os dados do novo aluno no Firestore
 
             // Limpa o formulário e o estado do novo aluno, incluindo o novo campo
-            setAlunoParaCadastro({ nome: '', turma: '', contato: '', responsavel: '', monitor: '', faltasAnteriores: 0, alertasCuidados: '' });
+            setAlunoParaCadastro({ nome: '', turma: '', contato: '', responsavel: '', monitor: '', faltasAnteriores: 0, alertasCuidados: '', dataMatricula: getTodayDateString() });
             alert('Aluno(a) cadastrado(a) com sucesso!');
         } catch (error) {
             console.error("Erro ao cadastrar aluno no Firestore:", error);
             alert("Erro ao cadastrar aluno.");
         }
-    }, [alunoParaCadastro]);
+    }, [alunoParaCadastro, getActualSchoolDatesBetween, nonSchoolDays]);
 
     // NOVIDADE FIRESTORE: handleExcluirAluno agora atualiza o status 'ativo' no Firestore
     const handleExcluirAluno = useCallback(async (alunoParaExcluir) => { // Recebe o objeto aluno completo
@@ -600,6 +659,12 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
                 const batchInstance = writeBatch(db);
 
                 for (const r of alunosParaAtualizar) {
+                    // NOVIDADE REQUERIDA: Não justificar se a data for anterior à matrícula
+                    if (dataSelecionada < r.dataMatricula) {
+                        console.log(`Não justificando ${r.nome} para ${dataSelecionada}: data anterior à matrícula.`);
+                        continue;
+                    }
+
                     const chave = `${r.nome}_${normalizeTurmaChar(r.turma)}_${dataSelecionada}`;
                     const alunoDocRef = doc(db, 'alunos', r.id);
                     const novasJustificativas = { ...r.justificativas, [chave]: motivo };
@@ -656,15 +721,19 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
             const alunosParaAtualizar = registrosFiltradosParaTabelaEOutros.filter(r => r.ativo); // Apenas alunos ativos na turma selecionada
 
             for (const r of alunosParaAtualizar) {
+                // NOVIDADE REQUERIDA: Não altera a presença se a data for anterior à matrícula
+                if (dataSelecionada < r.dataMatricula) {
+                    console.log(`Não alterando presença de ${r.nome} para ${dataSelecionada}: data anterior à matrícula.`);
+                    continue;
+                }
+
                 const alunoDocRef = doc(db, 'alunos', r.id);
                 const newPresencas = { ...r.presencas, [dataSelecionada]: targetPresenceState };
                 let newJustificativas = { ...r.justificativas };
                 const chaveJustificativa = `${r.nome}_${normalizeTurmaChar(r.turma)}_${dataSelecionada}`;
 
                 if (targetPresenceState === true) { // Se marcar como presente, remove a justificativa
-                    if (newJustificativas[chaveJustificativa]) {
-                        delete newJustificativas[chaveJustificativa];
-                    }
+                    newJustificativas[chaveJustificativa] = ""; // Define explicitamente como string vazia
                 } else { // Se desmarcar (ausente), adiciona "Falta não apurada" se não houver outra
                     if (!newJustificativas[chaveJustificativa] || newJustificativas[chaveJustificativa] === "Selecione" || newJustificativas[chaveJustificativa] === "") {
                         newJustificativas[chaveJustificativa] = "Falta não apurada";
@@ -700,6 +769,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
                         const alunoDocRef = doc(db, 'alunos', docSnapshot.id);
                         // NÃO remove o aluno, apenas reseta justificativas/observações, presenças e o torna ativo
                         // NOVIDADE ALERTA/CUIDADOS: Limpa o campo 'alertasCuidados' ao reiniciar alertas
+                        // NOVIDADE REQUERIDA: dataMatricula não é resetada
                         batchInstance.update(alunoDocRef, { justificativas: {}, observacoes: {}, presencas: {}, ativo: true, fotoUrl: '', alertasCuidados: '' });
                     });
 
@@ -728,6 +798,12 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
             alert("Erro: Não foi possível salvar as observações. Aluno ou ID ausente.");
             return;
         }
+        // NOVIDADE REQUERIDA: Não salva observação se a data for anterior à matrícula
+        if (dataSelecionada < currentAlunoForObservation.dataMatricula) {
+            alert("Não é possível adicionar/editar observações para datas anteriores à matrícula do aluno.");
+            return;
+        }
+
         const finalObservationsArray = Array.from(tempSelectedObservations);
         if (tempSelectedObservations.has("Outros") && otherObservationText.trim() !== '') {
             const indexOutros = finalObservationsArray.indexOf("Outros");
@@ -760,6 +836,11 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
     const handleSendObservationWhatsApp = useCallback(() => {
         if (!currentAlunoForObservation || !currentAlunoForObservation.contato) {
             alert("Aluno ou contato do responsável não disponível para enviar mensagem.");
+            return;
+        }
+        // NOVIDADE REQUERIDA: Não envia mensagem se a data for anterior à matrícula
+        if (dataSelecionada < currentAlunoForObservation.dataMatricula) {
+            alert("Não é possível enviar mensagens de observação para datas anteriores à matrícula do aluno.");
             return;
         }
         if (tempSelectedObservations.size === 0 && otherObservationText.trim() === '') {
@@ -820,6 +901,12 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
 
 
     const enviarWhatsapp = useCallback((aluno) => {
+        // NOVIDADE REQUERIDA: Não envia WhatsApp se a data for anterior à matrícula
+        if (dataSelecionada < aluno.dataMatricula) {
+            alert("Não é possível enviar mensagens de WhatsApp para datas anteriores à matrícula do aluno.");
+            return;
+        }
+
         const [ano, mes, dia] = dataSelecionada.split('-').map(Number);
         const dataObj = new Date(ano, mes - 1, dia);
         const diasSemana = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
@@ -878,10 +965,13 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                     const entryDateObj = new Date(data + 'T00:00:00');
                     const isWeekendEntry = entryDateObj.getDay() === 0 || entryDateObj.getDay() === 6;
 
+                    // NOVIDADE REQUERIDA: Incluir faltas anteriores à matrícula no relatório de faltas gerais
+                    const isHistoricalAbsence = justificativa === "Falta anterior à matrícula";
+
                     const shouldIncludeEntry = (
                         data >= dataInicio && data <= dataFim &&
                         (exportAllClasses ? turmasDoUsuario.includes(turmaAlunoNormalizada) : (turmaAlunoNormalizada === normalizeTurmaChar(turmaSelecionada) && turmasDoUsuario.includes(turmaAlunoNormalizada))) &&
-                        !isNonSchoolDayEntry && !isWeekendEntry // Excluir dias não letivos e fins de semana
+                        (isHistoricalAbsence || (!isNonSchoolDayEntry && !isWeekendEntry)) // Inclui faltas históricas OU faltas em dias letivos
                     );
 
                     if (shouldIncludeEntry) {
@@ -946,7 +1036,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
         };
 
         const img = new Image();
-        img.src = '/logo-escola.png';
+        img.src = logoUrl;
         img.crossOrigin = "Anonymous";
 
         img.onload = () => {
@@ -1048,7 +1138,8 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
             if (aluno.presencas) {
                 Object.entries(aluno.presencas).forEach(([dateString, isPresent]) => {
                     // Verifica se a presença é 'true' E se a data está dentro do período selecionado e é um dia letivo
-                    if (isPresent === true && allDatesInPeriod.has(dateString)) {
+                    // NOVIDADE REQUERIDA: Apenas considera presenças a partir da data de matrícula
+                    if (isPresent === true && allDatesInPeriod.has(dateString) && dateString >= aluno.dataMatricula) {
                         datesWithPresence.add(dateString);
                     }
                 });
@@ -1056,12 +1147,12 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
         });
 
         // Converte o Set para Array e ordena as datas cronologicamente
-        const finalDatesForExport = Array.from(datesWithPresence).sort();
+        const finalDatesForExport = Array.from(allDatesInPeriod).sort(); // Usar allDatesInPeriod para o cabeçalho, para mostrar todos os dias letivos
         // **FIM DA LÓGICA DE FILTRAGEM DE DIAS COM PRESENÇA**
 
-        // Se não houver dias com presença, avisa o usuário e não gera o PDF
+        // Se não houver dias letivos no período, avisa o usuário e não gera o PDF
         if (finalDatesForExport.length === 0) {
-            alert('Não há dias com presença registrada para esta turma no período selecionado.');
+            alert('Não há dias letivos no período selecionado para esta turma.');
             return;
         }
 
@@ -1073,12 +1164,18 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
         const body = alunosDaTurmaAtivos.map((aluno, index) => { // Usar 'alunosDaTurmaAtivos' aqui
             const row = [index + 1, aluno.nome]; // Adicionado o número de contagem
             finalDatesForExport.forEach(date => {
-                // Se aluno.presencas[date] for true, é 'P'. Caso contrário (false, undefined, null), é 'F'.
-                const presence = aluno.presencas?.[date] === true ? 'P' : 'F';
-                if (presence === 'F') {
-                    totalFaltasChamada++;
+                // NOVIDADE REQUERIDA: Marcar com '*' se a data for anterior à matrícula
+                if (date < aluno.dataMatricula) {
+                    row.push('*');
+                } else {
+                    // Se aluno.presencas[date] for true, é 'P'. Caso contrário (false, undefined, null), é 'F'.
+                    const presence = aluno.presencas?.[date] === true ? 'P' : 'F';
+                    row.push(presence);
+                    // NOVIDADE REQUERIDA: A falta só é contada se for após a data de matrícula
+                    if (presence === 'F') { // A condição `date >= aluno.dataMatricula` já é garantida pelo `else`
+                        totalFaltasChamada++;
+                    }
                 }
-                row.push(presence);
             });
             return row;
         });
@@ -1099,7 +1196,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
         // Adicionar o total de faltas da chamada no final
         doc.setFontSize(10);
         const finalYForTotalFaltasChamada = doc.lastAutoTable.finalY + 10;
-        doc.text(`Total de faltas registradas no período para a turma: ${totalFaltasChamada}`, 14, finalYForTotalFaltasChamada);
+        doc.text(`Total de faltas registradas no período para a turma (após a matrícula): ${totalFaltasChamada}`, 14, finalYForTotalFaltasChamada);
 
         doc.save(`chamada_turma_${normalizeTurmaChar(turmaSelecionada)}_${dataInicio}_a_${dataFim}.pdf`);
         alert('Chamada por período exportada com sucesso!');
@@ -1190,7 +1287,8 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
     // NOVIDADE FIRESTORE: editarAluno agora usa o ID do aluno
     const editarAluno = useCallback((alunoOriginal) => {
         // NOVIDADE ALERTA/CUIDADOS: Garante que 'alertasCuidados' seja passado para o estado de edição
-        setNovoAluno({ ...alunoOriginal, alertasCuidados: alunoOriginal.alertasCuidados || '' });
+        // NOVIDADE REQUERIDA: Garante que dataMatricula seja passada para o estado de edição
+        setNovoAluno({ ...alunoOriginal, alertasCuidados: alunoOriginal.alertasCuidados || '', dataMatricula: alunoOriginal.dataMatricula || REPORT_START_DATE });
         // Usa o ID do Firestore como chave de edição se existir, senão o originalIndex
         setEditandoAluno(alunoOriginal.id || alunoOriginal.originalIndex);
     }, []);
@@ -1274,25 +1372,17 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
     const calculateCompleteReport = useCallback((aluno) => {
         if (!aluno) return null;
         const today = getTodayDateString();
-        const startDate = REPORT_START_DATE;
-        const start = new Date(startDate);
-        const end = new Date(today);
-        let actualDaysInPeriod = 0; // Este é o número real de dias letivos no período selecionado
-        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-            const dayOfWeek = d.getDay();
-            const dateString = d.toISOString().split('T')[0];
-            const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === dateString);
-            if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) { // Excluir fins de semana e dias não letivos
-                actualDaysInPeriod++;
-            }
-        }
-        // Se não houver dias letivos no período, define como 1 para evitar divisão por zero,
-        // embora a porcentagem de faltas ainda será 0 se não houver faltas.
-        if (actualDaysInPeriod === 0) actualDaysInPeriod = 1;
+        const startDate = REPORT_START_DATE; // Início do período de registro do sistema
+        const matriculaDate = aluno.dataMatricula || REPORT_START_DATE; // Data de matrícula do aluno
 
         let faltasAluno = 0;
         const alunoJustificativas = aluno.justificativas || {};
-        const justificativasNoPeriodo = [];
+        const justificativasNoPeriodo = []; // Justificativas no período selecionado (para exibição detalhada)
+        const observacoesAlunoNoPeriodo = []; // Observações no período selecionado (para exibição detalhada)
+
+        let countFaltasAnteriores = 0;
+
+        // Contar todas as faltas do aluno (incluindo as anteriores à matrícula)
         Object.entries(alunoJustificativas).forEach(([chave, justificativa]) => {
             const partes = chave.split('_');
             const data = partes[2];
@@ -1300,10 +1390,42 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
             const dayOfWeek = dateObj.getDay();
             const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === data);
 
-            // Conta faltas apenas em dias letivos dentro do período selecionado
-            if (data >= startDate && data <= today && justificativa && justificativa !== "Selecione" && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) {
+            // Conta todas as faltas registradas que são de dias letivos ou faltas anteriores à matrícula
+            if ((dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) || justificativa === "Falta anterior à matrícula") {
                 faltasAluno++;
-                justificativasNoPeriodo.push({ data: formatarData(data), justificativa: justificativa.startsWith("Outros: ") ? justificativa.substring(8) : justificativa, });
+            }
+
+            // NOVIDADE REQUERIDA: Para o relatório detalhado, consolida "Falta anterior à matrícula"
+            if (justificativa === "Falta anterior à matrícula") {
+                countFaltasAnteriores++;
+            } else if (data >= matriculaDate && data <= today && justificativa && justificativa !== "Selecione" && (dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate)) {
+                justificativasNoPeriodo.push({ data: formatarData(data), justificativa: justificativa.startsWith("Outros: ") ? justificativa.substring(8) : justificativa });
+            }
+        });
+
+        // Adiciona a linha consolidada de faltas anteriores no início da lista
+        if (countFaltasAnteriores > 0) {
+            justificativasNoPeriodo.unshift({ // Use unshift to add to the beginning
+                data: formatarData(matriculaDate), // Usa a data de matrícula como referência para a linha consolidada
+                justificativa: `${countFaltasAnteriores} Faltas anterior à matrícula (até ${formatarData(new Date(new Date(matriculaDate).getTime() - (24 * 60 * 60 * 1000)).toISOString().split('T')[0])})`
+            });
+        }
+        // Re-ordena para garantir que todas as entradas estejam cronológicas
+        justificativasNoPeriodo.sort((a, b) => {
+            // Converte as strings de data formatadas de volta para um formato comparável (YYYY-MM-DD) para ordenação
+            const dateA = a.data.split('/').reverse().join('-');
+            const dateB = b.data.split('/').reverse().join('-');
+            return dateA.localeCompare(dateB);
+        });
+
+
+        // Contar observações (atrasos) para o relatório detalhado
+        Object.entries(aluno.observacoes || {}).forEach(([chave, obsArray]) => {
+            const partes = chave.split('_');
+            const dataObs = partes[2];
+            // Para o relatório detalhado, exibe apenas as observações a partir da data de matrícula
+            if (dataObs >= matriculaDate && dataObs <= today && Array.isArray(obsArray) && obsArray.length > 0) {
+                observacoesAlunoNoPeriodo.push({ data: formatarData(dataObs), observacoes: obsArray.join('; ') });
             }
         });
 
@@ -1312,10 +1434,14 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
 
         let faltasTurma = 0;
         let totalAlunosNaTurma = new Set();
-        // NOVIDADE: Para o relatório completo, consideramos apenas os alunos ATIVOS para as médias comparativas da turma/escola.
+        let totalDiasLetivosTurmaParaPorcentagem = 0; // Base para a turma: número de alunos * 100 dias
+
         registros.filter(a => a.ativo).forEach(r => {
+            // Apenas alunos na mesma turma e ativos
             if (normalizeTurmaChar(r.turma) === normalizeTurmaChar(aluno.turma)) {
                 totalAlunosNaTurma.add(r.nome);
+                totalDiasLetivosTurmaParaPorcentagem += 100; // Cada aluno ativo contribui com 100 dias para a base da turma
+
                 const rJustificativas = r.justificativas || {};
                 Object.entries(rJustificativas).forEach(([chave, justificativa]) => {
                     const partes = chave.split('_');
@@ -1323,22 +1449,24 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                     const dateObj = new Date(data + 'T00:00:00');
                     const dayOfWeek = dateObj.getDay();
                     const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === data);
-                    // Conta faltas da turma apenas em dias letivos dentro do período selecionado
-                    if (data >= startDate && data <= today && justificativa !== "" && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) {
+
+                    // Conta faltas da turma que são de dias letivos ou faltas anteriores à matrícula
+                    if ((dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) || justificativa === "Falta anterior à matrícula") {
                         faltasTurma++;
                     }
                 });
             }
         });
-        const numAlunosNaTurma = totalAlunosNaTurma.size > 0 ? totalAlunosNaTurma.size : 1;
-        // NOVIDADE REQUERIDA: Total de dias letivos da turma para porcentagem = número de alunos * 100
-        const totalDiasLetivosTurmaParaPorcentagem = numAlunosNaTurma * 100;
         const porcentagemTurma = totalDiasLetivosTurmaParaPorcentagem > 0 ? ((faltasTurma / totalDiasLetivosTurmaParaPorcentagem) * 100).toFixed(2) : 0;
 
         let faltasEscola = 0;
         let totalAlunosNaEscola = new Set();
+        let totalDiasLetivosEscolaParaPorcentagem = 0; // Base para a escola: número de alunos * 100 dias
+
         registros.filter(a => a.ativo).forEach(r => {
             totalAlunosNaEscola.add(r.nome);
+            totalDiasLetivosEscolaParaPorcentagem += 100; // Cada aluno ativo contribui com 100 dias para a base da escola
+
             const rJustificativas = r.justificativas || {};
             Object.entries(rJustificativas).forEach(([chave, justificativa]) => {
                 const partes = chave.split('_');
@@ -1346,30 +1474,19 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                 const dateObj = new Date(data + 'T00:00:00');
                 const dayOfWeek = dateObj.getDay();
                 const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === data);
-                // Conta faltas da escola apenas em dias letivos dentro do período selecionado
-                if (data >= startDate && data <= today && justificativa !== "" && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) {
+
+                // Conta faltas da escola que são de dias letivos ou faltas anteriores à matrícula
+                if ((dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) || justificativa === "Falta anterior à matrícula") {
                     faltasEscola++;
                 }
             });
         });
-        const numAlunosNaEscola = totalAlunosNaEscola.size > 0 ? totalAlunosNaEscola.size : 1;
-        // NOVIDADE REQUERIDA: Total de dias letivos da escola para porcentagem = número de alunos * 100
-        const totalDiasLetivosEscolaParaPorcentagem = numAlunosNaEscola * 100;
         const porcentagemEscola = totalDiasLetivosEscolaParaPorcentagem > 0 ? ((faltasEscola / totalDiasLetivosEscolaParaPorcentagem) * 100).toFixed(2) : 0;
 
-        const observacoesAlunoNoPeriodo = [];
-        Object.entries(aluno.observacoes || {}).forEach(([chave, obsArray]) => {
-            const partes = chave.split('_');
-            const dataObs = partes[2];
-            if (dataObs >= startDate && dataObs <= today && Array.isArray(obsArray) && obsArray.length > 0) {
-                observacoesAlunoNoPeriodo.push({ data: formatarData(dataObs), observacoes: obsArray.join('; ') });
-            }
-        });
-        // NOVIDADE ALERTA/CUIDADOS: Inclui o campo alertasCuidados no relatório
         return {
             aluno,
             periodo: `${formatarData(startDate)} a ${formatarData(today)}`,
-            diasLetivosNoPeriodo: actualDaysInPeriod, // Este valor ainda é útil para saber quantos dias a escola esteve aberta
+            diasLetivosNoPeriodo: getActualSchoolDatesBetween(startDate, today, nonSchoolDays).length, // Este valor ainda é útil para saber quantos dias a escola esteve aberta no período total
             faltasAluno,
             porcentagemAluno,
             faltasTurma,
@@ -1380,7 +1497,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
             justificativasNoPeriodo,
             alertasCuidados: aluno.alertasCuidados || '' // NOVIDADE ALERTA/CUIDADOS: Passa o alerta/cuidado para o relatório
         };
-    }, [registros, nonSchoolDays]);
+    }, [registros, nonSchoolDays, getActualSchoolDatesBetween]);
     const handleAbrirRelatorioAluno = useCallback((aluno) => { const reportData = calculateCompleteReport(aluno); setCompleteReportData(reportData); setSelectedStudentForReport(aluno); setShowCompleteReportModal(true); }, [calculateCompleteReport]);
     const exportCompleteReportPDF = useCallback(() => {
         if (!completeReportData) { alert('Não há dados de relatório para exportar.'); return; }
@@ -1454,6 +1571,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                     doc.setFontSize(12);
                     doc.text('Justificativas de Falta no Período:', 14, finalY);
                     finalY += 5;
+                    // NOVIDADE REQUERIDA: Exibe as justificativas consolidadas ou individuais
                     const jusBody = completeReportData.justificativasNoPeriodo.map(jus => [jus.data, jus.justificativa]);
                     autoTable(doc, { startY: finalY, head: [['Data', 'Justificativa']], body: jusBody, styles: { fontSize: 8 }, headStyles: { fillColor: [37, 99, 235] } });
                     finalY = doc.lastAutoTable.finalY;
@@ -1469,13 +1587,19 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
             }
         };
         const img = new Image(); img.src = logoUrl; img.crossOrigin = "Anonymous"; img.onload = () => { const logoWidth = 20; const logoHeight = (img.height * logoWidth) / img.width; const xLogo = (pageWidth - logoWidth) / 2; doc.addImage(img, 'PNG', xLogo, yOffset, logoWidth, logoHeight); yOffset += logoHeight + 5; doc.setFontSize(9); doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' }); yOffset += 10; addContentToDoc(); }; img.onerror = () => { console.error("Erro ao carregar a logo. Gerando PDF sem a imagem."); doc.setFontSize(12); doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' }); yOffset += 15; addContentToDoc(); };
-    }, [completeReportData]);
+    }, [completeReportData, getActualSchoolDatesBetween, nonSchoolDays]);
     const handleAbrirModalRecomposicao = useCallback((aluno) => { setAlunoParaRecompor(aluno); setIsRecomporModalOpen(true); setRecomporDataInicio(''); setRecomporDataFim(''); }, []);
     const handleConfirmarRecomposicao = useCallback(async () => { // Adicionado async
         if (!alunoParaRecompor || !recomporDataInicio || !recomporDataFim) {
             alert("Por favor, selecione o período completo para a recomposição.");
             return;
         }
+        // NOVIDADE REQUERIDA: Não permite recomposição em datas anteriores à matrícula
+        if (recomporDataInicio < alunoParaRecompor.dataMatricula) {
+            alert("Não é possível recompor faltas para datas anteriores à matrícula do aluno.");
+            return;
+        }
+
         if (window.confirm(`Tem certeza que deseja limpar as justificativas de ${alunoParaRecompor.nome} no período de ${formatarData(recomporDataInicio)} a ${formatarData(recomporDataFim)}?`)) {
             try {
                 const alunoDocRef = doc(db, 'alunos', alunoParaRecompor.id);
@@ -1487,6 +1611,9 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                 }
                 const currentJustificativas = alunoSnapshot.data().justificativas || {};
                 const novasJustificativas = { ...currentJustificativas };
+                const currentPresencas = alunoSnapshot.data().presencas || {};
+                const novasPresencas = { ...currentPresencas };
+
 
                 Object.keys(novasJustificativas).forEach(chave => {
                     const dataDaFalta = chave.split('_')[2];
@@ -1495,12 +1622,15 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                     const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === dataDaFalta);
 
                     // Só remove a justificativa se o dia for letivo (não fim de semana e não dia não letivo)
-                    if (dataDaFalta >= recomporDataInicio && dataDaFalta <= recomporDataFim && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) {
+                    // E se a data for igual ou posterior à data de matrícula
+                    if (dataDaFalta >= recomporDataInicio && dataDaFalta <= recomporDataFim && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate && dataDaFalta >= alunoParaRecompor.dataMatricula) {
                         delete novasJustificativas[chave];
+                        // Se a justificativa for removida, a presença para aquele dia deve ser marcada como 'true' (presente)
+                        novasPresencas[dataDaFalta] = true;
                     }
                 });
 
-                await updateDoc(alunoDocRef, { justificativas: novasJustificativas });
+                await updateDoc(alunoDocRef, { justificativas: novasJustificativas, presencas: novasPresencas });
                 alert("Justificativas do período foram limpas no Firestore com sucesso!");
                 // A atualização do estado 'registros' será feita automaticamente pelo onSnapshot listener
                 setIsRecomporModalOpen(false);
@@ -1574,7 +1704,8 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                         const dayOfWeek = dateObj.getDay();
                         const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === dataObs);
 
-                        if (dataObs && dataObs >= dataInicio && dataObs <= dataFim && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) { // Só inclui observações de dias letivos
+                        // NOVIDADE REQUERIDA: Apenas inclui observações de dias letivos a partir da data de matrícula
+                        if (dataObs && dataObs >= dataInicio && dataObs <= dataFim && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate && dataObs >= aluno.dataMatricula) {
                             // Filtra as observações com base nos tipos selecionados
                             const filteredObsForEntry = obsArray.filter(obs => {
                                 if (selectedObservationTypesToExport.has("Outros")) {
@@ -1586,7 +1717,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                             if (filteredObsForEntry.length > 0) {
                                 observationEntries.push({
                                     nome: aluno.nome,
-                                    turma: turmaAlunoNormalizada,
+                                    turma: turmaNormalizada, // Usar turmaNormalizada para consistência
                                     data: dataObs,
                                     observacao: filteredObsForEntry.join('; '), // Junta as observações filtradas
                                     monitor: aluno.monitor || '' // Monitor associado ao aluno
@@ -1763,6 +1894,153 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
     const isWeekend = selectedDateObj.getDay() === 0 || selectedDateObj.getDay() === 6; // 0 = Domingo, 6 = Sábado
     const isSelectedDateNonSchool = nonSchoolDays.some(day => day.date === dataSelecionada);
 
+    // NOVIDADE REQUERIDA: Função para gerar e baixar múltiplos PDFs em um arquivo ZIP
+    const handleDownloadAllReportsAsZip = useCallback(async (turmasToDownload) => {
+        if (turmasToDownload.length === 0) {
+            alert("Nenhuma turma selecionada para download.");
+            return;
+        }
+        setIsDownloading(true);
+        const zip = new JSZip();
+
+        try {
+            for (const turma of turmasToDownload) {
+                const turmaFolder = zip.folder(`Relatorios_${turma}`);
+                // Filtra os alunos ativos que pertencem à turma atual
+                const alunosDaTurma = registros.filter(aluno =>
+                    aluno.ativo && normalizeTurmaChar(aluno.turma) === normalizeTurmaChar(turma)
+                );
+
+                for (const aluno of alunosDaTurma) {
+                    // Re-calcula o relatório para cada aluno para garantir os dados mais recentes
+                    const reportData = calculateCompleteReport(aluno);
+                    if (reportData) {
+                        const pdf = new jsPDF();
+                        const pageWidth = pdf.internal.pageSize.getWidth();
+                        let yOffset = 10;
+                        const schoolName = `ESCOLA ESTADUAL CÍVICO-MILITAR PROFESSORA ANA MARIA DAS GRAÇAS DE SOUZA NORONHA`;
+                        const logoUrl = '/logo-escola.png';
+
+                        // Função para gerar o conteúdo do PDF (com logo e nome da escola)
+                        const generatePdfHeader = async () => {
+                            return new Promise(resolve => {
+                                const img = new Image();
+                                img.src = logoUrl;
+                                img.crossOrigin = "Anonymous";
+                                img.onload = () => {
+                                    const logoWidth = 20;
+                                    const logoHeight = (img.height * logoWidth) / img.width;
+                                    const xLogo = (pageWidth - logoWidth) / 2;
+                                    pdf.addImage(img, 'PNG', xLogo, yOffset, logoWidth, logoHeight);
+                                    yOffset += logoHeight + 5;
+                                    pdf.setFontSize(9);
+                                    pdf.text(schoolName, pageWidth / 2, yOffset, { align: 'center' });
+                                    yOffset += 10;
+                                    resolve();
+                                };
+                                img.onerror = () => {
+                                    console.error("Erro ao carregar a logo para o PDF. Gerando PDF sem a imagem.");
+                                    pdf.setFontSize(12);
+                                    pdf.text(schoolName, pageWidth / 2, yOffset, { align: 'center' });
+                                    yOffset += 15;
+                                    resolve();
+                                };
+                            });
+                        };
+
+                        await generatePdfHeader();
+
+                        // Adiciona o conteúdo do relatório
+                        pdf.setFontSize(14);
+                        pdf.text(`Relatório do(a) Aluno(a): ${aluno.nome}`, pageWidth / 2, yOffset, { align: 'center' });
+                        yOffset += 10;
+                        if (aluno.fotoUrl) {
+                            const img = new Image();
+                            img.src = aluno.fotoUrl;
+                            img.crossOrigin = "Anonymous";
+                            await new Promise(resolve => {
+                                img.onload = () => {
+                                    const imgWidth = 30;
+                                    const imgHeight = (img.height * imgWidth) / img.width;
+                                    const xImg = (pageWidth - imgWidth) / 2;
+                                    pdf.addImage(img, 'JPEG', xImg, yOffset, imgWidth, imgHeight, null, 'FAST');
+                                    yOffset += imgHeight + 5;
+                                    resolve();
+                                };
+                                img.onerror = resolve; // Continue even if image fails
+                            });
+                        }
+                        yOffset += 5; // Adiciona um pequeno espaço após a foto
+                        pdf.setFontSize(10);
+                        pdf.text(`Período do Relatório: ${reportData.periodo}`, 14, yOffset);
+                        yOffset += 7;
+                        pdf.text(`Total de Faltas no Período: ${reportData.faltasAluno} (${reportData.porcentagemAluno}%)`, 14, yOffset);
+                        yOffset += 7;
+                        pdf.text(`Turma: ${normalizeTurmaChar(reportData.aluno.turma)}`, 14, yOffset);
+                        yOffset += 7;
+                        pdf.text(`Contato: ${reportData.aluno.contato}`, 14, yOffset);
+                        yOffset += 7;
+                        pdf.text(`Responsável: ${reportData.aluno.responsavel}`, 14, yOffset);
+                        if (reportData.alertasCuidados) {
+                            yOffset += 10;
+                            pdf.setFontSize(12);
+                            pdf.text('Alertas / Cuidados:', 14, yOffset);
+                            yOffset += 5;
+                            pdf.setFontSize(10);
+                            const splitText = pdf.splitTextToSize(reportData.alertasCuidados, pageWidth - 28);
+                            pdf.text(splitText, 14, yOffset);
+                            yOffset += (splitText.length * 5) + 5;
+                        }
+                        yOffset += 10;
+                        pdf.setFontSize(12);
+                        pdf.text('Métricas Comparativas:', 14, yOffset);
+                        yOffset += 7;
+                        pdf.setFontSize(10);
+                        pdf.text(`Percentual de Faltas do(a) Aluno(a): ${reportData.porcentagemAluno}%`, 14, yOffset);
+                        yOffset += 7;
+                        pdf.text(`Média de Faltas da Turma: ${reportData.porcentagemTurma}%`, 14, yOffset);
+                        yOffset += 7;
+                        pdf.text(`Média de Faltas da Escola: ${reportData.porcentagemEscola}%`, 14, yOffset);
+                        yOffset += 10;
+                        let finalY = yOffset;
+                        if (reportData.justificativasNoPeriodo.length > 0) {
+                            pdf.setFontSize(12);
+                            pdf.text('Justificativas de Falta no Período:', 14, finalY);
+                            finalY += 5;
+                            const jusBody = reportData.justificativasNoPeriodo.map(jus => [jus.data, jus.justificativa]);
+                            autoTable(pdf, { startY: finalY, head: [['Data', 'Justificativa']], body: jusBody, styles: { fontSize: 8 }, headStyles: { fillColor: [37, 99, 235] } });
+                            finalY = pdf.lastAutoTable.finalY;
+                        }
+                        if (reportData.observacoesAlunoNoPeriodo.length > 0) {
+                            pdf.setFontSize(12);
+                            pdf.text('Observações no Período:', 14, finalY + 10);
+                            finalY += 15;
+                            const obsBody = reportData.observacoesAlunoNoPeriodo.map(obs => [obs.data, obs.observacoes]);
+                            autoTable(pdf, { startY: finalY, head: [['Data', 'Observações']], body: obsBody, styles: { fontSize: 8 }, headStyles: { fillColor: [37, 99, 235] } });
+                        }
+
+                        const pdfData = pdf.output('blob'); // Salva o PDF como um Blob
+                        const fileName = `Relatorio_${aluno.nome.replace(/ /g, '_')}.pdf`;
+                        turmaFolder.file(fileName, pdfData); // Adiciona o PDF ao arquivo ZIP
+                    }
+                }
+            }
+
+            const zipFileName = `Relatorios_alunos_${dataInicio}_a_${dataFim}.zip`;
+            const content = await zip.generateAsync({ type: "blob" });
+            saveAs(content, zipFileName);
+
+            alert('Download concluído com sucesso!');
+        } catch (error) {
+            console.error("Erro ao gerar o arquivo ZIP:", error);
+            alert("Erro ao gerar o arquivo ZIP. Verifique o console para mais detalhes.");
+        } finally {
+            setIsDownloading(false);
+            setShowZipModal(false); // Fecha o modal após a conclusão
+        }
+
+    }, [registros, dataInicio, dataFim, nonSchoolDays, calculateCompleteReport, turmasPermitidas]);
+
 
     return (
         <div className="p-8 font-inter w-full max-w-4xl mx-auto">
@@ -1804,9 +2082,23 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                             <option value="">Selecione o(a) Monitor(a)</option>
                             {monitoresDisponiveis.map(m => (<option key={m.name} value={m.name}>{m.name}</option>))}
                         </select>
+                        {/* NOVIDADE REQUERIDA: Campo Data de Matrícula */}
+                        <div className="mb-3">
+                            <label htmlFor="data-matricula" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Data de Matrícula:
+                            </label>
+                            <input
+                                id="data-matricula"
+                                type="date"
+                                value={alunoParaCadastro.dataMatricula}
+                                onChange={e => setAlunoParaCadastro({ ...alunoParaCadastro, dataMatricula: e.target.value })}
+                                className="block w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                                max={getTodayDateString()} // Não permite data de matrícula futura
+                            />
+                        </div>
                         <div className="mb-3">
                             <label htmlFor="faltas-anteriores" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Faltas Anteriores à Matrícula:
+                                Faltas Anteriores à Matrícula (no período de registro do sistema):
                             </label>
                             <input
                                 id="faltas-anteriores"
@@ -1815,6 +2107,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                                 value={alunoParaCadastro.faltasAnteriores}
                                 onChange={e => setAlunoParaCadastro({ ...alunoParaCadastro, faltasAnteriores: e.target.value })}
                                 className="block w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                                min="0"
                             />
                         </div>
                         {/* NOVIDADE ALERTA/CUIDADOS: Campo para Alertas/Cuidados no Cadastro */}
@@ -1976,6 +2269,15 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
             </div>
             {/* Fim do novo mecanismo de busca informativa */}
 
+            {tipoUsuario === 'gestor' && (
+                <div className="mt-5 mb-5 flex flex-wrap gap-3 items-center">
+                    <button onClick={() => setShowZipModal(true)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors duration-200 shadow-md" disabled={isDownloading}>
+                        {isDownloading ? 'Baixando...' : '🗃️ Baixar Relatórios em ZIP'}
+                    </button>
+                </div>
+            )}
+
+
             <div className="mt-5 flex flex-wrap gap-3 items-center">
                 <button onClick={justificarTodos} className="px-4 py-2 rounded-lg bg-green-500 text-white hover:bg-green-600 transition-colors duration-200 shadow-md">
                     ✅ Justificar Todos
@@ -2116,6 +2418,20 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                             <input placeholder="Contato" value={novoAluno.contato} onChange={e => setNovoAluno({ ...novoAluno, contato: e.target.value })} className="block w-full p-2 mb-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" /><br />
                             <input placeholder="Responsável" value={novoAluno.responsavel} onChange={e => setNovoAluno({ ...novoAluno, responsavel: e.target.value })} className="block w-full p-2 mb-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" /><br />
                             <input placeholder="Monitor(a)" value={novoAluno.monitor} onChange={e => setNovoAluno({ ...novoAluno, monitor: e.target.value })} className="block w-full p-2 mb-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" /><br />
+                            {/* NOVIDADE REQUERIDA: Campo Data de Matrícula na Edição */}
+                            <div className="mb-3">
+                                <label htmlFor="edit-data-matricula" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Data de Matrícula:
+                                </label>
+                                <input
+                                    id="edit-data-matricula"
+                                    type="date"
+                                    value={novoAluno.dataMatricula}
+                                    onChange={e => setNovoAluno({ ...novoAluno, dataMatricula: e.target.value })}
+                                    className="block w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600"
+                                    max={getTodayDateString()} // Não permite data de matrícula futura
+                                />
+                            </div>
                             {/* NOVIDADE ALERTA/CUIDADOS: Campo para Alertas/Cuidados na Edição */}
                             <div className="mb-3">
                                 <label htmlFor="edit-alertas-cuidados" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -2145,7 +2461,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                                         <button
                                             type="button"
                                             onClick={(e) => { e.stopPropagation(); handleExcluirFoto(novoAluno); }} // Adicionado e.stopPropagation()
-                                            className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors duration-200 shadow-md"
+                                            className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors duration-200 shadow-sm"
                                         >
                                             Excluir Foto
                                         </button>
@@ -2154,7 +2470,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                                     <button
                                         type="button"
                                         onClick={(e) => { e.stopPropagation(); handleOpenModalFoto(novoAluno); }} // Adicionado e.stopPropagation()
-                                        className="px-4 py-2 rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition-colors duration-200 shadow-md"
+                                        className="px-4 py-2 rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition-colors duration-200 shadow-sm"
                                     >
                                         Adicionar Foto
                                     </button>
@@ -2442,6 +2758,15 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                     )}
                 </>
             )} {/* Fim da renderização condicional do loading */}
+
+            {/* NOVIDADE REQUERIDA: Modal de Download ZIP */}
+            <ZipDownloadModal
+                isOpen={showZipModal}
+                onClose={() => setShowZipModal(false)}
+                onDownload={handleDownloadAllReportsAsZip}
+                turmasPermitidas={turmasPermitidas()} // Passa as turmas que o usuário logado pode ver
+                isDownloading={isDownloading}
+            />
         </div>
     );
 };

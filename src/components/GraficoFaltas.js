@@ -22,6 +22,7 @@
 // NOVIDADE DE UI: Botões de exportação PDF movidos para uma linha superior separada.
 // ATUALIZAÇÃO REQUERIDA: Contagem de dias letivos e faltas ajustada para excluir fins de semana e dias não letivos.
 // ATUALIZAÇÃO REQUERIDA: Cálculos de porcentagem de faltas baseados em 100 dias letivos fixos.
+// ATUALIZAÇÃO REQUERIDA: Removida a explicação do cálculo da porcentagem da escola.
 
 import React, { useState, useMemo } from 'react'; // Adicionado useMemo
 import { Bar } from 'react-chartjs-2';
@@ -136,7 +137,7 @@ const GraficoFaltas = ({ registros, dataInicio, dataFim, turmaSelecionada, tipoU
   const totalFaltasPorAlunosNaTurmaSelecionada = {};
   // NOVIDADE: Filtra os registros para incluir APENAS os alunos da turma selecionada
   registros
-    .filter(aluno => normalizeTurmaChar(aluno.turma) === normalizeTurmaChar(turmaSelecionada))
+    .filter(aluno => aluno.ativo && normalizeTurmaChar(aluno.turma) === normalizeTurmaChar(turmaSelecionada))
     .forEach(aluno => {
     // NOVIDADE REQUERIDA: A base para a porcentagem do aluno é sempre 100 dias
     const totalDiasLetivosAlunoBase = 100;
@@ -178,7 +179,7 @@ const GraficoFaltas = ({ registros, dataInicio, dataFim, turmaSelecionada, tipoU
   // NOVIDADE REQUERIDA: Base para o cálculo da escola = número de alunos * 100
   let totalDiasLetivosEscolaBase = 0;
 
-  registros.forEach(aluno => {
+  registros.filter(aluno => aluno.ativo).forEach(aluno => { // Apenas alunos ativos para cálculo da escola
     const turmaNormalizada = normalizeTurmaChar(aluno.turma);
     
     // Garante que a turma existe no objeto, mesmo que não estivesse nos turmasDisponiveis (caso de dados inconsistentes)
@@ -213,7 +214,7 @@ const GraficoFaltas = ({ registros, dataInicio, dataFim, turmaSelecionada, tipoU
     .map(turma => {
       const dadosTurma = faltasPorTurma[turma];
       // Usa a base de 100 dias por aluno para o cálculo da porcentagem da turma
-      const porcentagem = (dadosTurma.faltas / dadosTurma.totalDiasLetivosBase) * 100;
+      const porcentagem = dadosTurma.totalDiasLetivosBase > 0 ? (dadosTurma.faltas / dadosTurma.totalDiasLetivosBase) * 100 : 0;
       return { turma, porcentagem: porcentagem.toFixed(2) };
     });
   
@@ -411,9 +412,7 @@ const GraficoFaltas = ({ registros, dataInicio, dataFim, turmaSelecionada, tipoU
           <div className="md:col-span-2 lg:col-span-3 bg-gray-100 dark:bg-gray-700 p-6 rounded-lg shadow-md text-center">
             <h4 className="text-2xl font-bold mb-2">Porcentagem de Faltas da Escola:</h4>
             <p className="text-4xl font-extrabold text-blue-700 dark:text-blue-300">{porcentagemEscola}%</p>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              (Calculado com base no total de faltas sobre o total de dias letivos de todos os alunos no período selecionado)
-            </p>
+            {/* REMOVIDA: A linha de explicação do cálculo */}
           </div>
         </div>
       )}

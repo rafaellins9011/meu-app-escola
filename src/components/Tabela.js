@@ -12,7 +12,7 @@
 // NOVA CORREÇÃO: Lógica de seleção do checkbox e handlePresence ajustadas.
 // CORREÇÃO CRÍTICA: Adicionado 'registros' de volta aos props do componente Tabela.
 // ULTIMA TENTATIVA: Debug e refinamento da lógica de isPresent e handlePresence.
-// NOVA LÓGICA DE PRESENÇA: Campo booleano separado no Firestore para controle da chamada.
+// NOVA Lógica DE PRESENÇA: Campo booleano separado no Firestore para controle da chamada.
 // NOVIDADE BOTÃO: Botão "Alternar Seleção" (✅) adicionado ao cabeçalho da coluna "Chamada".
 // CORREÇÃO CRÍTICA FINAL: Adicionado 'onToggleAllChamada' aos props RECEBIDOS pelo componente Tabela.
 // NOVIDADE REQUERIDA: Bloqueia a seleção de justificativa quando a presença está marcada.
@@ -23,6 +23,9 @@
 // NOVIDADE VISIBILIDADE COLUNAS: Adicionados botões para ocultar/mostrar colunas "Contato" e "Responsável".
 // INÍCIO OCULTO: Colunas "Contato" e "Responsável" iniciam ocultas por padrão.
 // ATUALIZAÇÃO REQUERIDA: Bloqueio de ações em dias não letivos, fins de semana e datas futuras.
+// NOVIDADE REQUERIDA: Bloqueio de ações em datas anteriores à dataMatricula do aluno.
+// ATUALIZAÇÃO REQUERIDA: Ao marcar presença, a justificativa é automaticamente redefinida para "Selecione".
+// CORREÇÃO REQUERIDA: A justificativa sempre exibirá "Selecione" se o aluno estiver presente.
 
 import React, { useState } from 'react'; // Importar useState
 
@@ -75,7 +78,7 @@ const Tabela = ({
         "Falta não justificada",
         "Sem retorno",
         "Luto",
-        "Sem contato", // Adicionado vírgula aqui
+        "Sem contato",
         "Outros"
     ];
 
@@ -127,12 +130,10 @@ const Tabela = ({
 
         newPresencas[dataAtual] = nextPresenceState;
 
-        // Se o aluno for marcado como PRESENTE, remove qualquer justificativa existente para essa data
+        // Se o aluno for marcado como PRESENTE, limpa a justificativa
         if (nextPresenceState === true) {
-            if (newJustificativas[chaveJustificativa]) {
-                delete newJustificativas[chaveJustificativa];
-                console.log(`handlePresence: Removida justificativa para ${aluno.nome} em ${dataAtual} porque foi marcado como PRESENTE.`);
-            }
+            newJustificativas[chaveJustificativa] = ""; // Define explicitamente como string vazia
+            console.log(`handlePresence: Justificativa limpa para ${aluno.nome} em ${dataAtual} porque foi marcado como PRESENTE.`);
         } else { // Se o aluno for marcado como AUSENTE (ou não marcado inicialmente)
             // E não houver uma justificativa já existente, define como "Falta não apurada"
             if (!newJustificativas[chaveJustificativa] || newJustificativas[chaveJustificativa] === "Selecione" || newJustificativas[chaveJustificativa] === "") {
@@ -150,10 +151,6 @@ const Tabela = ({
             justificativas: newJustificativas
         });
     };
-
-    // Determinar se a data selecionada é uma data futura (já vem de Painel.js)
-    // const todayString = getTodayDateString(); // Removido, pois a prop já vem de Painel.js
-    // const isFutureDate = dataSelecionada > todayString; // Removido, pois a prop já vem de Painel.js
 
     return (
         <div className="overflow-x-auto mt-8 shadow-lg rounded-lg">
@@ -236,17 +233,17 @@ const Tabela = ({
                             const chaveJustificativa = `${aluno.nome}_${normalizeTurmaChar(aluno.turma)}_${dataSelecionada}`;
                             const justificativaAtualCompleta = aluno.justificativas?.[chaveJustificativa];
 
+                            const isPresent = aluno.presencas?.[dataSelecionada] === true; // Determina a presença real
+
                             let justificativaDropdownValue;
-                            // Lógica para definir a justificativa padrão
-                            if (justificativaAtualCompleta) {
+                            // CORREÇÃO: Se o aluno está presente, a justificativa DEVE ser "Selecione".
+                            if (isPresent) {
+                                justificativaDropdownValue = "Selecione";
+                            } else if (justificativaAtualCompleta) {
                                 justificativaDropdownValue = justificativaAtualCompleta;
                             } else {
-                                // Se não houver justificativa explícita e o aluno não estiver presente, padroniza para "Falta não apurada"
-                                if (aluno.presencas?.[dataSelecionada] === false || aluno.presencas?.[dataSelecionada] === undefined) { // Se for false ou undefined (não marcado)
-                                    justificativaDropdownValue = "Falta não apurada";
-                                } else { // Se for true (presente)
-                                    justificativaDropdownValue = "Selecione";
-                                }
+                                // Se não estiver presente e não houver justificativa, padroniza para "Falta não apurada"
+                                justificativaDropdownValue = "Falta não apurada";
                             }
 
                             let justificativaDropdownDisplay = justificativaDropdownValue;
@@ -264,15 +261,16 @@ const Tabela = ({
                                 ? justificativaAtualCompleta.replace("Outros: ", "")
                                 : '';
 
-                            const isPresent = aluno.presencas?.[dataSelecionada] === true;
+                            // NOVIDADE REQUERIDA: Define se a data selecionada é anterior à matrícula do aluno
+                            const isBeforeMatricula = dataSelecionada < aluno.dataMatricula;
 
                             // NOVIDADE REQUERIDA: Define se a justificativa deve estar desabilitada
-                            // Desabilita se o aluno estiver presente OU se a data for futura OU fim de semana OU dia não letivo
-                            const isJustificativaDisabled = isPresent || isFutureDate || isWeekend || isSelectedDateNonSchool;
+                            // Desabilita se o aluno estiver presente OU se a data for futura OU fim de semana OU dia não letivo OU anterior à matrícula
+                            const isJustificativaDisabled = isPresent || isFutureDate || isWeekend || isSelectedDateNonSchool || isBeforeMatricula;
                             // NOVIDADE REQUERIDA: Define se o checkbox de presença deve estar desabilitado
-                            const isPresenceCheckboxDisabled = isFutureDate || isWeekend || isSelectedDateNonSchool;
+                            const isPresenceCheckboxDisabled = isFutureDate || isWeekend || isSelectedDateNonSchool || isBeforeMatricula;
                             // NOVIDADE REQUERIDA: Define se o botão de observação deve estar desabilitado
-                            const isObservationButtonDisabled = isFutureDate || isWeekend || isSelectedDateNonSchool;
+                            const isObservationButtonDisabled = isFutureDate || isWeekend || isSelectedDateNonSchool || isBeforeMatricula;
 
 
                             console.log(`Renderizando ${aluno.nome} - Presença (Firestore): ${aluno.presencas?.[dataSelecionada]}, isPresent (checkbox): ${isPresent}`);
@@ -334,7 +332,7 @@ const Tabela = ({
                                                 if (!isPresenceCheckboxDisabled) { // Só permite alterar se não for dia bloqueado
                                                     handlePresence(aluno);
                                                 } else {
-                                                    alert("Não é possível alterar a chamada para datas futuras, fins de semana ou dias não letivos.");
+                                                    alert("Não é possível alterar a chamada para esta data (anterior à matrícula, futura, fim de semana ou dia não letivo).");
                                                 }
                                             }}
                                             className={`form-checkbox h-5 w-5 rounded ${isPresenceCheckboxDisabled ? 'cursor-not-allowed opacity-50' : 'text-blue-600'}`}
@@ -351,7 +349,7 @@ const Tabela = ({
                                                     handleJustificativa(aluno, e.target.value);
                                                 }}
                                                 onClick={(e) => e.stopPropagation()}
-                                                // Desabilita se o aluno estiver presente OU se a data for futura OU fim de semana OU dia não letivo
+                                                // Desabilita se o aluno estiver presente OU se a data for futura OU fim de semana OU dia não letivo OU anterior à matrícula
                                                 disabled={isJustificativaDisabled}
                                                 className={`p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white dark:border-gray-600 w-full
                                                 ${isJustificativaDisabled ? 'bg-gray-100 dark:bg-gray-700 cursor-not-allowed opacity-70' : ''}`}
@@ -374,7 +372,7 @@ const Tabela = ({
                                                 if (!isObservationButtonDisabled) { // Só permite abrir se não for dia bloqueado
                                                     onOpenObservationDropdown(aluno, e)
                                                 } else {
-                                                    alert("Não é possível adicionar/editar observações para datas futuras, fins de semana ou dias não letivos.");
+                                                    alert("Não é possível adicionar/editar observações para esta data (anterior à matrícula, futura, fim de semana ou dia não letivo).");
                                                 }
                                             }}
                                             className={`observation-button p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 w-full text-left
