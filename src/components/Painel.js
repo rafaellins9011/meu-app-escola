@@ -30,8 +30,8 @@
 // CORREÇÃO CRÍTICA: Corrigido erro "null is not iterable" na inicialização de estados.
 // ATUALIZAÇÃO REQUERIDA: Passando flags de data para Tabela.js para bloqueio de ações.
 // NOVIDADE REQUERIDA: Seção "Gerenciar Dias Não Letivos" oculta por padrão com botão de alternância.
-// ATUALIZAÇÃO REQUERIDA: Cálculos de porcentagem de faltas baseados em 100 dias letivos.
-// NOVIDADE REQUERIDA: Campo dataMatricula e cálculo de faltas anteriores/presenças baseado nela, bloqueio de datas anteriores.
+// ATUALIZAÇÃO REQUERIDA: Cálculos de porcentagem de faltas baseados em 100 dias letivos fixos.
+// NOVIDADE REQUERIDA: dataMatricula e cálculo de faltas anteriores/presenças baseado nela, bloqueio de datas anteriores.
 // ATUALIZAÇÃO REQUERIDA: Incluir "Falta anterior à matrícula" na lista detalhada de justificativas no relatório do aluno de forma consolidada.
 // ATUALIZAÇÃO REQUERIDA: No Relatório de Chamada, datas anteriores à matrícula são marcadas com '*' e não contadas.
 // CORREÇÃO ERRO: Removido variável intermediária 'otherJustificativasNoPeriodo' para resolver ReferenceError.
@@ -39,6 +39,11 @@
 // NOVIDADE REQUERIDA: Funcionalidade de download de relatórios por turma em arquivo ZIP.
 // ATUALIZAÇÃO REQUERIDA: Botão de download ZIP visível apenas para gestores.
 // CORREÇÃO CRÍTICA: Ajuste na lógica de contagem de faltas e justificativas no relatório para refletir a limpeza ao marcar presença.
+// ATUALIZAÇÃO REQUERIDA: Lista de chamada ordenada por ordem alfabética.
+// CORREÇÃO REQUERIDA: Relatório de Chamada PDF agora também é ordenado alfabeticamente.
+// ATUALIZAÇÃO REQUERIDA: Nomes dos alunos alinhados à esquerda em todos os PDFs.
+// CORREÇÃO FINAL: Nomes completos dos alunos aparecendo nos PDFs com largura de coluna automática.
+// NOVIDADE: Sanitização de nomes de alunos para evitar problemas de caracteres em PDFs.
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { turmasDisponiveis, monitoresDisponiveis, gestoresDisponiveis } from '../dados'; // Manter para dados estáticos
@@ -78,6 +83,12 @@ const getTodayDateString = () => {
 
 const normalizeTurmaChar = (turma) => {
     return String(turma).replace(/°/g, 'º');
+};
+
+// NOVIDADE: Função para sanitizar nomes, removendo caracteres problemáticos
+const sanitizeName = (name) => {
+    // Permite letras (a-z, A-Z), números (0-9), espaços, e caracteres acentuados do português
+    return name.replace(/[^a-zA-Z0-9\sàáâãäåçèéêëìíîïòóôõöùúûüýÿñÀÁÂÃÄÅÇÈÉÊËÌÍÎÏÒÓÔÕÖÙÚÛÜÝŸÑ]/g, '');
 };
 
 // NOVIDADE REQUERIDA: Data de início do registro no sistema
@@ -361,7 +372,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
             // NOVIDADE REQUERIDA: Verifica se a data selecionada é um dia não letivo
             const isSelectedDateNonSchool = nonSchoolDays.some(day => day.date === dataSelecionada);
             const selectedDateObj = new Date(dataSelecionada + 'T00:00:00');
-            const isWeekend = selectedDateObj.getDay() === 0 || selectedDateObj.getDay() === 6; // 0 = Domingo, 6 = Sábado
+            const isWeekend = selectedDateObj.getDay() === 0 || selectedDateObj.getDay() === 6; // 0 = Sunday, 6 = Saturday
 
             if (isSelectedDateNonSchool || isWeekend) {
                 console.log(`Data selecionada (${dataSelecionada}) é um dia não letivo ou fim de semana. Não inicializando faltas.`);
@@ -473,7 +484,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
 
                 return pertence && turmaOk && buscaTabelaOk;
             })
-            .sort((a, b) => a.nome.localeCompare(b.nome));
+            .sort((a, b) => a.nome.localeCompare(b.nome)); // ORDENAÇÃO ALFABÉTICA AQUI
     }, [registros, turmaSelecionada, termoBuscaTabela, turmasPermitidas]);
 
     // NOVIDADE FIRESTORE: A função atualizarAlunoRegistro agora interage com o Firestore
@@ -482,6 +493,8 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
             const alunoDocRef = doc(db, 'alunos', alunoId);
             // Remove o ID do objeto antes de salvar/atualizar, pois o ID já é o nome do documento
             const { id, ...dadosParaSalvar } = alunoAtualizado;
+            // NOVIDADE: Sanitiza o nome antes de salvar/atualizar
+            dadosParaSalvar.nome = sanitizeName(dadosParaSalvar.nome);
             await setDoc(alunoDocRef, dadosParaSalvar, { merge: true }); // merge: true para atualizar campos existentes
 
             console.log("Aluno atualizado no Firestore com sucesso:", alunoId);
@@ -587,7 +600,7 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
         }
 
         const novoRegistroData = { // Dados que serão salvos no Firestore
-            nome: alunoParaCadastro.nome,
+            nome: sanitizeName(alunoParaCadastro.nome), // NOVIDADE: Sanitiza o nome ao cadastrar
             turma: normalizeTurmaChar(alunoParaCadastro.turma),
             contato: alunoParaCadastro.contato,
             responsavel: alunoParaCadastro.responsavel,
@@ -641,6 +654,8 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
         try {
             const alunoDocRef = doc(db, 'alunos', novoAluno.id);
             const { id, ...dadosParaSalvar } = novoAluno; // Remove o ID para não tentar salvá-lo como campo
+            // NOVIDADE: Sanitiza o nome antes de salvar/atualizar
+            dadosParaSalvar.nome = sanitizeName(dadosParaSalvar.nome);
             await setDoc(alunoDocRef, dadosParaSalvar, { merge: true }); // merge: true para atualizar campos existentes
 
             alert("Aluno atualizado com sucesso!");
@@ -968,7 +983,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                     const shouldIncludeEntry = (
                         data >= dataInicio && data <= dataFim &&
                         (exportAllClasses ? turmasDoUsuario.includes(turmaAlunoNormalizada) : (turmaAlunoNormalizada === normalizeTurmaChar(turmaSelecionada) && turmasDoUsuario.includes(turmaAlunoNormalizada))) &&
-                        (isHistoricalAbsence || (!isPresentForDate && justificativa && justificativa !== "" && !isNonSchoolDayEntry && !isWeekendEntry))
+                        (isHistoricalAbsence || (!isPresentForDate && justificativa && justificativa !== "" && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayEntry && !isWeekendEntry))
                     );
 
                     if (shouldIncludeEntry) {
@@ -1017,6 +1032,9 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                 body: periodoFormattedForTable, // Usamos o array classificado e formatado
                 styles: { fontSize: 8, halign: 'center' },
                 headStyles: { fillColor: [37, 99, 235], halign: 'center' },
+                columnStyles: {
+                    1: { halign: 'left', cellWidth: 'auto' }, // ALINHA O NOME À ESQUERDA E AUTO-AJUSTA LARGURA
+                },
             });
 
             // Adicionar o total de faltas no final
@@ -1127,9 +1145,13 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
 
         const datesWithPresence = new Set();
         // Filtrar registros para incluir apenas alunos ATIVOS da turma selecionada
-        const alunosDaTurmaAtivos = registros.filter(aluno =>
+        let alunosDaTurmaAtivos = registros.filter(aluno => // Usar 'let' para permitir reatribuição após a ordenação
             aluno.ativo && normalizeTurmaChar(aluno.turma) === normalizeTurmaChar(turmaSelecionada)
         );
+
+        // ORDENAÇÃO ALFABÉTICA AQUI para o PDF de Chamada
+        alunosDaTurmaAtivos.sort((a, b) => a.nome.localeCompare(b.nome));
+
 
         alunosDaTurmaAtivos.forEach(aluno => {
             if (aluno.presencas) {
@@ -1183,6 +1205,9 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
             body: body,
             styles: { fontSize: 8, halign: 'center' },
             headStyles: { fillColor: [37, 99, 235], halign: 'center' },
+            columnStyles: {
+                1: { halign: 'left', cellWidth: 'auto' }, // ALINHA O NOME À ESQUERDA E AUTO-AJUSTA LARGURA
+            },
             didDrawPage: function (data) {
                 // Rodapé com número da página
                 doc.setFontSize(8);
@@ -1218,12 +1243,10 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
         const chartInstance = graficoSemanalRef.current;
         if (chartInstance && chartInstance.canvas) { // NOVIDADE: Acessa o canvas direto da instância do Chart.js
             try {
-                const canvas = await html2canvas(chartInstance.canvas, { // Alvo é o canvas do gráfico
-                    scale: 2, // Aumenta a resolução para melhor qualidade no PDF
-                    useCORS: true, // Importante para imagens externas, se houver
+                const canvas = await html2canvas(chartInstance.canvas, {
+                    scale: 2,
+                    useCORS: true,
                 });
-                // MODIFICAÇÃO: Usar 'image/jpeg' com qualidade para compressão
-                // O segundo parâmetro (0.8) é a qualidade (de 0 a 1). Ajuste para mais ou menos compressão.
                 const imgData = canvas.toDataURL('image/jpeg', 0.8);
 
                 const pdf = new jsPDF('l', 'mm', 'a4');
@@ -1232,7 +1255,6 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                 const schoolName = `ESCOLA ESTADUAL CÍVICO-MILITAR PROFESSORA ANA MARIA DAS GRAÇAS DE SOUZA NORONHA`;
                 const logoUrl = '/logo-escola.png';
 
-                // Add logo and school name
                 const img = new Image();
                 img.src = logoUrl;
                 img.crossOrigin = "Anonymous";
@@ -1258,23 +1280,19 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                     };
                 });
 
-                // Add specific chart title
-                const chartTitle = `Faltas e Atrasos (Semanal e Diário) - ${formatarData(dataInicio)} a ${formatarData(dataFim)}`;
                 pdf.setFontSize(10);
-                pdf.text(chartTitle, pageWidth / 2, yOffset, { align: 'center' });
+                pdf.text(title, pageWidth / 2, yOffset, { align: 'center' });
                 yOffset += 10;
 
-                // Add the captured chart image
-                const imgProps = pdf.getImageProperties(imgData);
-                const pdfHeight = (imgProps.height * pageWidth) / imgProps.width; // CORREÇÃO: Usando 'pageWidth'
-                // MODIFICAÇÃO: Usar 'JPEG' para o formato da imagem
-                pdf.addImage(imgData, 'JPEG', 0, yOffset, pageWidth, pdfHeight); // CORREÇÃO: Usando 'pageWidth'
+                const imgProps= pdf.getImageProperties(imgData);
+                const pdfHeight = (imgProps.height * pageWidth) / imgProps.width;
+                pdf.addImage(imgData, 'JPEG', 0, yOffset, pageWidth, pdfHeight);
 
-                pdf.save(`grafico_semanal_${dataInicio}_a_${dataFim}.pdf`);
-                alert('Gráfico Semanal exportado com sucesso!');
+                pdf.save(`${title.toLowerCase().replace(/ /g, '_').replace(/ /g, '_')}.pdf`);
+                alert('Gráfico exportado com sucesso!');
             } catch (error) {
-                console.error("Erro ao exportar o Gráfico Semanal:", error);
-                alert(`Erro ao exportar o Gráfico Semanal. Verifique se ele está visível e tente novamente. Detalhes: ${error.message || error}`); // NOVIDADE: Mensagem de erro mais detalhada
+                console.error(`Erro ao exportar o gráfico ${chartId}:`, error);
+                alert(`Erro ao exportar o gráfico. Verifique se ele está visível e tente novamente. Detalhes: ${error.message || error}`);
             }
         } else {
             alert('Gráfico Semanal não encontrado para exportação. Certifique-se de que ele está visível.');
@@ -1579,7 +1597,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                     doc.text('Justificativas de Falta no Período:', 14, finalY);
                     finalY += 5;
                     const jusBody = completeReportData.justificativasNoPeriodo.map(jus => [jus.data, jus.justificativa]);
-                    autoTable(doc, { startY: finalY, head: [['Data', 'Justificativa']], body: jusBody, styles: { fontSize: 8 }, headStyles: { fillColor: [37, 99, 235] } });
+                    autoTable(doc, { startY: finalY, head: [['Data', 'Justificativa']], body: jusBody, styles: { fontSize: 8, halign: 'left' }, headStyles: { fillColor: [37, 99, 235] } });
                     finalY = pdf.lastAutoTable.finalY;
                 }
                 if (completeReportData.observacoesAlunoNoPeriodo.length > 0) {
@@ -1587,7 +1605,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                     doc.text('Observações no Período:', 14, finalY + 10);
                     finalY += 15;
                     const obsBody = completeReportData.observacoesAlunoNoPeriodo.map(obs => [obs.data, obs.observacoes]);
-                    autoTable(doc, { startY: finalY, head: [['Data', 'Observações']], body: obsBody, styles: { fontSize: 8 }, headStyles: { fillColor: [37, 99, 235] } });
+                    autoTable(doc, { startY: finalY, head: [['Data', 'Observações']], body: obsBody, styles: { fontSize: 8, halign: 'left' }, headStyles: { fillColor: [37, 99, 235] } });
                 }
                 doc.save(`relatorio_completo_${completeReportData.aluno.nome.replace(/ /g, '_')}.pdf`);
             }
@@ -1723,7 +1741,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                             if (filteredObsForEntry.length > 0) {
                                 observationEntries.push({
                                     nome: aluno.nome,
-                                    turma: turmaNormalizada, // Usar turmaNormalizada para consistência
+                                    turma: turmaAlunoNormalizada, // Usar turmaNormalizada para consistência
                                     data: dataObs,
                                     observacao: filteredObsForEntry.join('; '), // Junta as observações filtradas
                                     monitor: aluno.monitor || '' // Monitor associado ao aluno
@@ -1758,6 +1776,9 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                 body: formattedForTable,
                 styles: { fontSize: 8, halign: 'center' },
                 headStyles: { fillColor: [37, 99, 235], halign: 'center' },
+                columnStyles: {
+                    1: { halign: 'left', cellWidth: 'auto' }, // ALINHA O NOME À ESQUERDA E AUTO-AJUSTA LARGURA
+                },
             });
 
             // Adicionar o total de observações no final
@@ -1897,7 +1918,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
     const todayString = getTodayDateString();
     const isFutureDate = dataSelecionada > todayString;
     const selectedDateObj = new Date(dataSelecionada + 'T00:00:00');
-    const isWeekend = selectedDateObj.getDay() === 0 || selectedDateObj.getDay() === 6; // 0 = Domingo, 6 = Sábado
+    const isWeekend = selectedDateObj.getDay() === 0 || selectedDateObj.getDay() === 6; // 0 = Sunday, 6 = Saturday
     const isSelectedDateNonSchool = nonSchoolDays.some(day => day.date === dataSelecionada);
 
     // NOVIDADE REQUERIDA: Função para gerar e baixar múltiplos PDFs em um arquivo ZIP
@@ -1994,35 +2015,35 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                             yOffset += 5;
                             pdf.setFontSize(10);
                             const splitText = pdf.splitTextToSize(reportData.alertasCuidados, pageWidth - 28);
-                            pdf.text(splitText, 14, yOffset);
+                            doc.text(splitText, 14, yOffset);
                             yOffset += (splitText.length * 5) + 5;
                         }
                         yOffset += 10;
                         pdf.setFontSize(12);
-                        pdf.text('Métricas Comparativas:', 14, yOffset);
+                        doc.text('Métricas Comparativas:', 14, yOffset);
                         yOffset += 7;
                         pdf.setFontSize(10);
-                        pdf.text(`Percentual de Faltas do(a) Aluno(a): ${reportData.porcentagemAluno}%`, 14, yOffset);
+                        doc.text(`Percentual de Faltas do(a) Aluno(a): ${reportData.porcentagemAluno}%`, 14, yOffset);
                         yOffset += 7;
-                        pdf.text(`Média de Faltas da Turma: ${reportData.porcentagemTurma}%`, 14, yOffset);
+                        doc.text(`Média de Faltas da Turma: ${reportData.porcentagemTurma}%`, 14, yOffset);
                         yOffset += 7;
-                        pdf.text(`Média de Faltas da Escola: ${reportData.porcentagemEscola}%`, 14, yOffset);
+                        doc.text(`Média de Faltas da Escola: ${reportData.porcentagemEscola}%`, 14, yOffset);
                         yOffset += 10;
                         let finalY = yOffset;
                         if (reportData.justificativasNoPeriodo.length > 0) {
-                            pdf.setFontSize(12);
-                            pdf.text('Justificativas de Falta no Período:', 14, finalY);
+                            doc.setFontSize(12);
+                            doc.text('Justificativas de Falta no Período:', 14, finalY);
                             finalY += 5;
                             const jusBody = reportData.justificativasNoPeriodo.map(jus => [jus.data, jus.justificativa]);
-                            autoTable(pdf, { startY: finalY, head: [['Data', 'Justificativa']], body: jusBody, styles: { fontSize: 8 }, headStyles: { fillColor: [37, 99, 235] } });
+                            autoTable(doc, { startY: finalY, head: [['Data', 'Justificativa']], body: jusBody, styles: { fontSize: 8, halign: 'left' }, headStyles: { fillColor: [37, 99, 235] } });
                             finalY = pdf.lastAutoTable.finalY;
                         }
                         if (reportData.observacoesAlunoNoPeriodo.length > 0) {
-                            pdf.setFontSize(12);
-                            pdf.text('Observações no Período:', 14, finalY + 10);
+                            doc.setFontSize(12);
+                            doc.text('Observações no Período:', 14, finalY + 10);
                             finalY += 15;
                             const obsBody = reportData.observacoesAlunoNoPeriodo.map(obs => [obs.data, obs.observacoes]);
-                            autoTable(pdf, { startY: finalY, head: [['Data', 'Observações']], body: obsBody, styles: { fontSize: 8 }, headStyles: { fillColor: [37, 99, 235] } });
+                            autoTable(doc, { startY: finalY, head: [['Data', 'Observações']], body: obsBody, styles: { fontSize: 8, halign: 'left' }, headStyles: { fillColor: [37, 99, 235] } });
                         }
 
                         const pdfData = pdf.output('blob'); // Salva o PDF como um Blob
@@ -2459,14 +2480,14 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                                     <>
                                         <button
                                             type="button"
-                                            onClick={(e) => { e.stopPropagation(); handleViewPhoto(novoAluno.fotoUrl, e); }} // Adicionado e.stopPropagation()
-                                            className="px-4 py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors duration-200 shadow-md photo-thumbnail"
+                                            onClick={(e) => { e.stopPropagation(); handleViewPhoto(novoAluno.fotoUrl, e); }}
+                                            className="px-4 py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors duration-200 shadow-sm photo-thumbnail"
                                         >
                                             Ver Foto Atual
                                         </button>
                                         <button
                                             type="button"
-                                            onClick={(e) => { e.stopPropagation(); handleExcluirFoto(novoAluno); }} // Adicionado e.stopPropagation()
+                                            onClick={(e) => { e.stopPropagation(); handleExcluirFoto(novoAluno); }}
                                             className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors duration-200 shadow-sm"
                                         >
                                             Excluir Foto
@@ -2475,7 +2496,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                                 ) : (
                                     <button
                                         type="button"
-                                        onClick={(e) => { e.stopPropagation(); handleOpenModalFoto(novoAluno); }} // Adicionado e.stopPropagation()
+                                        onClick={(e) => { e.stopPropagation(); handleOpenModalFoto(novoAluno); }}
                                         className="px-4 py-2 rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition-colors duration-200 shadow-sm"
                                     >
                                         Adicionar Foto

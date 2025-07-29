@@ -26,6 +26,7 @@
 // NOVIDADE REQUERIDA: Bloqueio de ações em datas anteriores à dataMatricula do aluno.
 // ATUALIZAÇÃO REQUERIDA: Ao marcar presença, a justificativa é automaticamente redefinida para "Selecione".
 // CORREÇÃO REQUERIDA: A justificativa sempre exibirá "Selecione" se o aluno estiver presente, e a lógica de limpeza foi ajustada.
+// ATUALIZAÇÃO REQUERIDA: Nomes dos alunos alinhados à esquerda na tabela.
 
 import React, { useState } from 'react'; // Importar useState
 
@@ -244,6 +245,7 @@ const Tabela = ({
                                 justificativaDropdownValue = justificativaAtualCompleta;
                             } else {
                                 // Se não estiver presente e não houver justificativa, padroniza para "Falta não apurada"
+                                // Isso garante que o dropdown sempre mostre um valor significativo.
                                 justificativaDropdownValue = "Falta não apurada";
                             }
 
@@ -300,7 +302,7 @@ const Tabela = ({
                                             <span className="text-gray-500 dark:text-gray-400">N/A</span>
                                         )}
                                     </td>
-                                    <td className="py-3 px-4 text-sm text-gray-900 dark:text-gray-100 flex items-center">
+                                    <td className="py-3 px-4 text-sm text-gray-900 dark:text-gray-100 text-left"> {/* AQUI: Adicionado text-left */}
                                         {aluno.nome}
                                         {aluno.alertasCuidados && (
                                             <span

@@ -8,8 +8,6 @@
 // CORREÇÃO ESSENCIAL: Gráfico 'Porcentagem de Faltas por Turma' agora garante que TODAS as 22 turmas sejam exibidas.
 // CORREÇÃO DE ERRO: Importado 'turmasDisponiveis' para resolver 'ReferenceError'.
 // CORREÇÃO DE EXPORTAÇÃO: Ref do gráfico 'Porcentagem de Faltas por Aluno' agora é passada corretamente para o Chart.js.
-// NOVIDADE DE UI: Botão 'Alunos PDF' movido ao lado de 'Justificativas PDF' e com período no label.
-// MODIFICAÇÃO DE EXPORTAÇÃO: Botão de exportação do gráfico de alunos agora está neste componente.
 // CORREÇÃO REFERENCEREEROR: A variável 'cores' foi movida para ser declarada antes de seu uso.
 // CORREÇÃO VISUAL DE CORES: O gráfico 'Faltas por Justificativa (na Turma)' agora é um gráfico de barras simples
 //                           (não empilhado) que mostra o total de faltas por tipo de justificativa,
@@ -24,6 +22,7 @@
 // ATUALIZAÇÃO REQUERIDA: Cálculos de porcentagem de faltas baseados em 100 dias letivos fixos.
 // ATUALIZAÇÃO REQUERIDA: Removida a explicação do cálculo da porcentagem da escola.
 // CORREÇÃO CRÍTICA: A contagem de faltas agora verifica explicitamente `aluno.presencas[data] === false` ou `undefined`.
+// ATUALIZAÇÃO REQUERIDA: Nomes dos alunos no gráfico 'Porcentagem de Faltas por Aluno' ordenados alfabeticamente.
 
 import React, { useState, useMemo } from 'react'; // Adicionado useMemo
 import { Bar } from 'react-chartjs-2';
@@ -169,7 +168,8 @@ const GraficoFaltas = ({ registros, dataInicio, dataFim, turmaSelecionada, tipoU
     // Usa a base fixa de 100 dias para o cálculo da porcentagem do aluno
     const porcentagem = (dadosAluno.faltas / dadosAluno.totalDiasLetivosBase) * 100;
     return { nome: nomeAluno, porcentagem: porcentagem.toFixed(2) };
-  });
+  }).sort((a, b) => a.nome.localeCompare(b.nome)); // ORDENAÇÃO ALFABÉTICA AQUI
+
 
   // --- Cálculos para Gráficos de Turma e Escola (Usa dados completos) ---
   // MODIFICAÇÃO ESSENCIAL: Inicializa faltasPorTurma com TODAS as turmas disponíveis
