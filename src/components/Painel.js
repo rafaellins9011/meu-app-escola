@@ -42,12 +42,15 @@
 // ATUALIZAÇÃO REQUERIDA: Lista de chamada ordenada por ordem alfabética.
 // CORREÇÃO REQUERIDA: Relatório de Chamada PDF agora também é ordenado alfabeticamente.
 // ATUALIZAÇÃO REQUERIDA: Nomes dos alunos alinhados à esquerda em todos os PDFs.
-// CORREÇÃO FINAL: Nomes completos dos alunos aparecendo nos PDFs com largura de coluna automática.
 // NOVIDADE: Sanitização de nomes de alunos para evitar problemas de caracteres em PDFs.
 // CORREÇÃO CRÍTICA: Corrigido ReferenceError 'pdf is not defined' em exportCompleteReportPDF.
 // CORREÇÃO DE LAYOUT: Ajustado o espaçamento do cabeçalho nos PDFs para evitar sobreposição do nome da escola com o logo.
 // CORREÇÃO DE LAYOUT: Adicionado o nome do aluno após a foto no PDF do relatório completo.
 // CORREÇÃO DE ERRO: Corrigido ReferenceError: dayOfWeek is not defined em funções de exportação de PDF.
+// NOVIDADE REQUERIDA: Adicionada opção para imprimir a chamada em branco.
+// ATUALIZAÇÃO REQUERIDA: Adicionadas bordas pretas na tabela da chamada em branco.
+// ATUALIZAÇÃO REQUERIDA: Datas em formato "DD/MM" com largura de coluna reduzida na chamada em branco.
+// ATUALIZAÇÃO REQUERIDA: Aplicadas as mesmas configurações de tabela (bordas e largura de coluna de data) para a chamada por período.
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { turmasDisponiveis, monitoresDisponiveis, gestoresDisponiveis } from '../dados'; // Manter para dados estáticos
@@ -108,11 +111,11 @@ const observationMessages = {
     },
     "Cabelo fora do padrão.": {
         title: "**Cabelo fora do padrão.**",
-        getBody: (aluno) => `O corte de cabelo de ${aluno.nome} não está de acordo com as normas estabelecidas pela escola, que exigem o padrão de corte à máquina nº 2 ou nº 3, nas partes parietais e occipitais do crânio, mantendo-se bem nítidos os contornos junto às orelhas e ao pescoço (corte social), conforme o padrão adotado na administração cívico-militar. Solicitamos a gentileza de orientá-lo(a) para que seja seguido o padrão adequado, evitando futuros impedimentos na participação na participação das atividades escolares e formativas.`
+        getBody: (aluno) => `O corte de cabelo de ${aluno.nome} não está de acordo com as normas estabelecidas pela escola, conforme o padrão adotado na administração cívico-militar. Solicitamos a gentileza de orientá-lo(a) para que seja seguido o padrão adequado, evitando futuros impedimentos na participação das atividades escolares e formativas.`
     },
     "Sem tênis.": {
         title: "**Sem tênis.**",
-        getBody: () => `Informamos que que, conforme a Portaria nº 181/2024/GS/SEDUC/MT, o uso do uniforme escolar completo é obrigatório para acesso e permanência dos estudantes na escola, incluindo atividades curriculares e extracurriculares. Hoje, o(a) aluno(a) compareceu à escola sem o tênis adequado, que faz parte do uniforme obrigatório. Conforme o Art. 2º, §2º da portaria, o estudante deve utilizar o tênis fornecido pelo Estado ou outro calçado fechado. Solicitamos que providenciem o uso correto do uniforme para os próximos dias, garantindo assim o cumprimento das normas estabelecidas e a segurança do estudante.`
+        getBody: () => `Informamos que, conforme a Portaria nº 181/2024/GS/SEDUC/MT, o uso do uniforme escolar completo é obrigatório para acesso e permanência dos estudantes na escola, incluindo atividades curriculares e extracurriculares. Hoje, o(a) aluno(a) compareceu à escola sem o tênis adequado, que faz parte do uniforme obrigatório. Conforme o Art. 2º, §2º da portaria, o estudante deve utilizar o tênis fornecido pelo Estado ou outro calçado fechado. Solicitamos que providenciem o uso correto do uniforme para os próximos dias, garantindo assim o cumprimento das normas estabelecidas e a segurança do estudante.`
     },
     "Sem camisa do uniforme.": {
         title: "**Sem camisa do uniforme.**",
@@ -1206,15 +1209,34 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
             return row;
         });
 
+        const columnStyles = {
+            1: { halign: 'left', cellWidth: 'auto' }, // ALINHA O NOME À ESQUERDA E AUTO-AJUSTA LARGURA
+        };
+
+        // Dynamically set small fixed width for date columns
+        finalDatesForExport.forEach((_, index) => {
+            // Date columns start at index 2 (after 'Nº' and 'Nome do Aluno')
+            columnStyles[index + 2] = { cellWidth: 8, halign: 'center' }; // Ajuste 8 conforme necessário para largura mínima
+        });
+
         autoTable(doc, {
             startY: yOffset,
             head: head,
             body: body,
-            styles: { fontSize: 8, halign: 'center' },
-            headStyles: { fillColor: [37, 99, 235], halign: 'center' },
-            columnStyles: {
-                1: { halign: 'left', cellWidth: 'auto' }, // ALINHA O NOME À ESQUERDA E AUTO-AJUSTA LARGURA
+            // ATUALIZAÇÃO: Adicionadas bordas pretas para todas as células
+            styles: {
+                fontSize: 8,
+                halign: 'center',
+                lineWidth: 0.1, // Largura da linha
+                lineColor: [0, 0, 0] // Cor da linha (preto)
             },
+            headStyles: {
+                fillColor: [37, 99, 235],
+                halign: 'center',
+                lineWidth: 0.1, // Largura da linha para o cabeçalho
+                lineColor: [0, 0, 0] // Cor da linha para o cabeçalho (preto)
+            },
+            columnStyles: columnStyles, // Use the dynamically generated columnStyles
             didDrawPage: function (data) {
                 // Rodapé com número da página
                 doc.setFontSize(8);
@@ -1229,6 +1251,138 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
 
         doc.save(`chamada_turma_${normalizeTurmaChar(turmaSelecionada)}_${dataInicio}_a_${dataFim}.pdf`);
         alert('Chamada por período exportada com sucesso!');
+
+    }, [dataInicio, dataFim, turmaSelecionada, registros, formatarData, nonSchoolDays]);
+
+    // NOVIDADE REQUERIDA: Função para exportar a chamada em branco
+    const exportarChamadaEmBrancoPDF = useCallback(async () => {
+        if (!dataInicio || !dataFim) {
+            alert('Selecione o período completo para exportar a chamada em branco.');
+            return;
+        }
+        if (!turmaSelecionada) {
+            alert('Selecione uma turma para exportar a chamada em branco.');
+            return;
+        }
+
+        const doc = new jsPDF('l', 'mm', 'a4'); // 'l' para paisagem
+        const pageWidth = doc.internal.pageSize.getWidth();
+        let yOffset = 10;
+        const schoolName = `ESCOLA ESTADUAL CÍVICO-MILITAR PROFESSORA ANA MARIA DAS GRAÇAS DE SOUZA NORONHA`;
+        const logoUrl = '/logo-escola.png';
+
+        // Função para adicionar cabeçalho (logo e nome da escola)
+        const addHeaderToPdf = async () => {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.src = logoUrl;
+                img.crossOrigin = "Anonymous";
+                img.onload = () => {
+                    const logoWidth = 20;
+                    const logoHeight = (img.height * logoWidth) / img.width;
+                    const xLogo = (pageWidth - logoWidth) / 2;
+                    doc.addImage(img, 'PNG', xLogo, yOffset, logoWidth, logoHeight);
+                    yOffset += logoHeight + 5; // Ajustado para 5 para espaçamento consistente
+                    doc.setFontSize(9);
+                    doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' });
+                    yOffset += 10;
+                    resolve();
+                };
+                img.onerror = () => {
+                    console.error("Erro ao carregar a logo para o PDF. Gerando PDF sem a imagem.");
+                    doc.setFontSize(12);
+                    doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' });
+                    yOffset += 15;
+                    resolve();
+                };
+            });
+        };
+
+        await addHeaderToPdf();
+
+        // Título do relatório
+        doc.setFontSize(14);
+        doc.text(`Chamada em Branco - Turma: ${normalizeTurmaChar(turmaSelecionada)} (${formatarData(dataInicio)} a ${formatarData(dataFim)})`, pageWidth / 2, yOffset, { align: 'center' });
+        yOffset += 15;
+
+        const allDatesInPeriod = new Set();
+        let tempCurrentDate = new Date(dataInicio + 'T00:00:00');
+        const tempEndDate = new Date(dataFim + 'T00:00:00');
+
+        while (tempCurrentDate <= tempEndDate) {
+            const dateString = tempCurrentDate.toISOString().split('T')[0];
+            const dayOfWeek = tempCurrentDate.getDay();
+            const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === dateString);
+
+            if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) {
+                allDatesInPeriod.add(dateString);
+            }
+            tempCurrentDate.setDate(tempCurrentDate.getDate() + 1);
+        }
+
+        const finalDatesForExport = Array.from(allDatesInPeriod).sort();
+
+        if (finalDatesForExport.length === 0) {
+            alert('Não há dias letivos no período selecionado para esta turma.');
+            return;
+        }
+
+        // Preparar cabeçalhos da tabela usando as datas filtradas
+        // As datas já estão em formato "DD/MM" para serem compactas.
+        const head = [['Nº', 'Nome do Aluno', ...finalDatesForExport.map(d => formatarData(d).substring(0, 5))]];
+
+        const alunosDaTurmaAtivos = registros.filter(aluno =>
+            aluno.ativo && normalizeTurmaChar(aluno.turma) === normalizeTurmaChar(turmaSelecionada)
+        ).sort((a, b) => a.nome.localeCompare(b.nome)); // Ordenação alfabética
+
+        const body = alunosDaTurmaAtivos.map((aluno, index) => {
+            const row = [index + 1, aluno.nome];
+            finalDatesForExport.forEach(date => {
+                if (date < aluno.dataMatricula) {
+                    row.push('*'); // Marcar com '*' se for anterior à matrícula
+                } else {
+                    row.push(''); // Deixar em branco para preenchimento manual
+                }
+            });
+            return row;
+        });
+
+        const columnStyles = {
+            1: { halign: 'left', cellWidth: 'auto' }, // ALINHA O NOME À ESQUERDA E AUTO-AJUSTA LARGURA
+        };
+
+        // Dynamically set small fixed width for date columns
+        finalDatesForExport.forEach((_, index) => {
+            // Date columns start at index 2 (after 'Nº' and 'Nome do Aluno')
+            columnStyles[index + 2] = { cellWidth: 8, halign: 'center' }; // Ajuste 8 conforme necessário para largura mínima
+        });
+
+        autoTable(doc, {
+            startY: yOffset,
+            head: head,
+            body: body,
+            // ATUALIZAÇÃO: Adicionadas bordas pretas para todas as células
+            styles: {
+                fontSize: 8,
+                halign: 'center',
+                lineWidth: 0.1, // Largura da linha
+                lineColor: [0, 0, 0] // Cor da linha (preto)
+            },
+            headStyles: {
+                fillColor: [37, 99, 235],
+                halign: 'center',
+                lineWidth: 0.1, // Largura da linha para o cabeçalho
+                lineColor: [0, 0, 0] // Cor da linha para o cabeçalho (preto)
+            },
+            columnStyles: columnStyles, // Use the dynamically generated columnStyles
+            didDrawPage: function (data) {
+                doc.setFontSize(8);
+                doc.text('Página ' + doc.internal.getNumberOfPages(), pageWidth - 20, doc.internal.pageSize.getHeight() - 10, { align: 'right' });
+            }
+        });
+
+        doc.save(`chamada_em_branco_turma_${normalizeTurmaChar(turmaSelecionada)}_${dataInicio}_a_${dataFim}.pdf`);
+        alert('Chamada em branco exportada com sucesso!');
 
     }, [dataInicio, dataFim, turmaSelecionada, registros, formatarData, nonSchoolDays]);
 
@@ -1262,11 +1416,10 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                 const schoolName = `ESCOLA ESTADUAL CÍVICO-MILITAR PROFESSORA ANA MARIA DAS GRAÇAS DE SOUZA NORONHA`;
                 const logoUrl = '/logo-escola.png';
 
-                const img = new Image();
-                img.src = logoUrl;
-                img.crossOrigin = "Anonymous";
-
                 await new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.src = logoUrl;
+                    img.crossOrigin = "Anonymous";
                     img.onload = () => {
                         const logoWidth = 20;
                         const logoHeight = (img.height * logoWidth) / img.width;
@@ -1288,6 +1441,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                 });
 
                 pdf.setFontSize(10);
+                const title = `Gráfico Semanal de Faltas e Atrasos (${formatarData(dataInicio)} a ${formatarData(dataFim)})`;
                 pdf.text(title, pageWidth / 2, yOffset, { align: 'center' });
                 yOffset += 10;
 
@@ -1298,7 +1452,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                 pdf.save(`${title.toLowerCase().replace(/ /g, '_').replace(/ /g, '_')}.pdf`);
                 alert('Gráfico exportado com sucesso!');
             } catch (error) {
-                console.error(`Erro ao exportar o gráfico ${chartId}:`, error);
+                console.error(`Erro ao exportar o gráfico semanal:`, error);
                 alert(`Erro ao exportar o gráfico. Verifique se ele está visível e tente novamente. Detalhes: ${error.message || error}`);
             }
         } else {
@@ -1672,7 +1826,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                     continuePdfContent();
                 };
                 alunoImg.onerror = () => {
-                    console.error("Erro ao carregar a foto do aluno para o PDF. Continuar sem a imagem.");
+                    console.error("Erro ao carregar a foto do aluno para o PDF. Continuando sem a imagem.");
                     // Adicionar o nome do aluno aqui, mesmo sem a foto
                     doc.setFontSize(14); // Tamanho da fonte para o nome
                     doc.text(completeReportData.aluno.nome, pageWidth / 2, yOffset, { align: 'center' });
@@ -2117,14 +2271,14 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                                 pdf.setFontSize(14); // Tamanho da fonte para o nome
                                 pdf.text(aluno.nome, pageWidth / 2, yOffset, { align: 'center' });
                                 yOffset += 10; // Espaço após o nome
-                                generatePdfContent(); // Continua mesmo se a foto do aluno falhar
+                                generatePdfContent();
                             };
                         } else {
                             // Se não houver foto do aluno, adiciona apenas o nome
                             pdf.setFontSize(14); // Tamanho da fonte para o nome
                             pdf.text(aluno.nome, pageWidth / 2, yOffset, { align: 'center' });
                             yOffset += 10; // Espaço após o nome
-                            generatePdfContent(); // Continua diretamente se não houver foto do aluno
+                            generatePdfContent();
                         }
                     };
 
@@ -2466,6 +2620,14 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                                     role="menuitem"
                                 >
                                     Imprimir Chamada por Período
+                                </button>
+                                {/* NOVIDADE REQUERIDA: Botão para imprimir a chamada em branco */}
+                                <button
+                                    onClick={exportarChamadaEmBrancoPDF}
+                                    className="text-gray-700 dark:text-gray-200 block px-4 py-2 text-sm w-full text-left hover:bg-gray-100 dark:hover:bg-gray-600"
+                                    role="menuitem"
+                                >
+                                    Imprimir Chamada em Branco
                                 </button>
                                 {/* NOVIDADE REQUERIDA: Botão para abrir o modal de exportação de observações */}
                                 <button
