@@ -44,6 +44,10 @@
 // ATUALIZAÇÃO REQUERIDA: Nomes dos alunos alinhados à esquerda em todos os PDFs.
 // CORREÇÃO FINAL: Nomes completos dos alunos aparecendo nos PDFs com largura de coluna automática.
 // NOVIDADE: Sanitização de nomes de alunos para evitar problemas de caracteres em PDFs.
+// CORREÇÃO CRÍTICA: Corrigido ReferenceError 'pdf is not defined' em exportCompleteReportPDF.
+// CORREÇÃO DE LAYOUT: Ajustado o espaçamento do cabeçalho nos PDFs para evitar sobreposição do nome da escola com o logo.
+// CORREÇÃO DE LAYOUT: Adicionado o nome do aluno após a foto no PDF do relatório completo.
+// CORREÇÃO DE ERRO: Corrigido ReferenceError: dayOfWeek is not defined em funções de exportação de PDF.
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { turmasDisponiveis, monitoresDisponiveis, gestoresDisponiveis } from '../dados'; // Manter para dados estáticos
@@ -975,15 +979,15 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                     // NOVIDADE REQUERIDA: A falta só é contada se a presença for false/undefined E a justificativa não for vazia
                     const isPresentForDate = aluno.presencas?.[data] === true;
                     const isNonSchoolDayEntry = nonSchoolDays.some(day => day.date === data);
-                    const entryDateObj = new Date(data + 'T00:00:00');
-                    const isWeekendEntry = entryDateObj.getDay() === 0 || entryDateObj.getDay() === 6;
+                    const entryDateObj = new Date(data + 'T00:00:00'); // Definir entryDateObj aqui
+                    const isWeekendEntry = entryDateObj.getDay() === 0 || entryDateObj.getDay() === 6; // Definir isWeekendEntry aqui
                     const isHistoricalAbsence = justificativa === "Falta anterior à matrícula";
 
 
                     const shouldIncludeEntry = (
                         data >= dataInicio && data <= dataFim &&
                         (exportAllClasses ? turmasDoUsuario.includes(turmaAlunoNormalizada) : (turmaAlunoNormalizada === normalizeTurmaChar(turmaSelecionada) && turmasDoUsuario.includes(turmaAlunoNormalizada))) &&
-                        (isHistoricalAbsence || (!isPresentForDate && justificativa && justificativa !== "" && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayEntry && !isWeekendEntry))
+                        (isHistoricalAbsence || (!isPresentForDate && justificativa && justificativa !== "" && entryDateObj.getDay() !== 0 && entryDateObj.getDay() !== 6 && !isNonSchoolDayEntry && !isWeekendEntry))
                     );
 
                     if (shouldIncludeEntry) {
@@ -1059,7 +1063,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
             const logoHeight = (img.height * logoWidth) / img.width;
             const xLogo = (pageWidth - logoWidth) / 2;
             doc.addImage(img, 'PNG', xLogo, yOffset, logoWidth, logoHeight);
-            yOffset += logoHeight + 5;
+            yOffset += logoHeight + 5; // Ajustado para 5 para espaçamento consistente
             doc.setFontSize(9);
             doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' });
             yOffset += 10;
@@ -1103,7 +1107,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                     const logoHeight = (img.height * logoWidth) / img.width;
                     const xLogo = (pageWidth - logoWidth) / 2;
                     doc.addImage(img, 'PNG', xLogo, yOffset, logoWidth, logoHeight);
-                    yOffset += logoHeight + 5;
+                    yOffset += logoHeight + 5; // Ajustado para 5 para espaçamento consistente
                     doc.setFontSize(9);
                     doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' });
                     yOffset += 10;
@@ -1136,7 +1140,6 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
             const dayOfWeek = tempCurrentDate.getDay();
             const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === dateString);
 
-            // Inclui a data apenas se não for fim de semana e não for um dia não letivo
             if (dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) {
                 allDatesInPeriod.add(dateString);
             }
@@ -1155,11 +1158,15 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
 
         alunosDaTurmaAtivos.forEach(aluno => {
             if (aluno.presencas) {
-                Object.entries(aluno.presencas).forEach(([dateString, isPresent]) => {
+                Object.entries(aluno.presencas).forEach(([data, isPresent]) => { // Renomeado dateString para data
+                    const dateObj = new Date(data + 'T00:00:00'); // Definir dateObj aqui
+                    const dayOfWeek = dateObj.getDay(); // Definir dayOfWeek aqui
+                    const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === data); // Definir isNonSchoolDayDate aqui
+
                     // Verifica se a presença é 'true' E se a data está dentro do período selecionado e é um dia letivo
                     // NOVIDADE REQUERIDA: Apenas considera presenças a partir da data de matrícula
-                    if (isPresent === true && allDatesInPeriod.has(dateString) && dateString >= aluno.dataMatricula) {
-                        datesWithPresence.add(dateString);
+                    if (isPresent === true && allDatesInPeriod.has(data) && data >= aluno.dataMatricula && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) {
+                        datesWithPresence.add(data);
                     }
                 });
             }
@@ -1265,7 +1272,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                         const logoHeight = (img.height * logoWidth) / img.width;
                         const xLogo = (pageWidth - logoWidth) / 2;
                         pdf.addImage(img, 'PNG', xLogo, yOffset, logoWidth, logoHeight);
-                        yOffset += logoHeight + 5;
+                        yOffset += logoHeight + 5; // Ajustado para 5 para espaçamento consistente
                         pdf.setFontSize(9);
                         pdf.text(schoolName, pageWidth / 2, yOffset, { align: 'center' });
                         yOffset += 10;
@@ -1285,7 +1292,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                 yOffset += 10;
 
                 const imgProps= pdf.getImageProperties(imgData);
-                const pdfHeight = (imgProps.height * pageWidth) / imgProps.width;
+                const pdfHeight = (imgProps.height * pageWidth) / pdf.internal.pageSize.getWidth(); // Usar pdf.internal.pageSize.getWidth() para largura
                 pdf.addImage(imgData, 'JPEG', 0, yOffset, pageWidth, pdfHeight);
 
                 pdf.save(`${title.toLowerCase().replace(/ /g, '_').replace(/ /g, '_')}.pdf`);
@@ -1442,8 +1449,12 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
         Object.entries(aluno.observacoes || {}).forEach(([chave, obsArray]) => {
             const partes = chave.split('_');
             const dataObs = partes[2];
+            const dateObj = new Date(dataObs + 'T00:00:00'); // Definir dateObj aqui
+            const dayOfWeek = dateObj.getDay(); // Definir dayOfWeek aqui
+            const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === dataObs); // Definir isNonSchoolDayDate aqui
+
             // Para o relatório detalhado, exibe apenas as observações a partir da data de matrícula
-            if (dataObs >= matriculaDate && dataObs <= today && Array.isArray(obsArray) && obsArray.length > 0) {
+            if (dataObs >= matriculaDate && dataObs <= today && Array.isArray(obsArray) && obsArray.length > 0 && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate) {
                 observacoesAlunoNoPeriodo.push({ data: formatarData(dataObs), observacoes: obsArray.join('; ') });
             }
         });
@@ -1465,9 +1476,9 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                 Object.entries(rJustificativas).forEach(([chave, justificativa]) => {
                     const partes = chave.split('_');
                     const data = partes[2];
-                    const dateObj = new Date(data + 'T00:00:00');
-                    const dayOfWeek = dateObj.getDay();
-                    const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === data);
+                    const dateObj = new Date(data + 'T00:00:00'); // Definir dateObj aqui
+                    const dayOfWeek = dateObj.getDay(); // Definir dayOfWeek aqui
+                    const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === data); // Definir isNonSchoolDayDate aqui
                     const isPresentForDate = r.presencas?.[data] === true; // Verifica o status de presença para a data
 
                     // CORREÇÃO: A falta só é contada se a presença for false/undefined E a justificativa não for vazia
@@ -1493,9 +1504,9 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
             Object.entries(rJustificativas).forEach(([chave, justificativa]) => {
                 const partes = chave.split('_');
                 const data = partes[2];
-                const dateObj = new Date(data + 'T00:00:00');
-                const dayOfWeek = dateObj.getDay();
-                const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === data);
+                const dateObj = new Date(data + 'T00:00:00'); // Definir dateObj aqui
+                const dayOfWeek = dateObj.getDay(); // Definir dayOfWeek aqui
+                const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === data); // Definir isNonSchoolDayDate aqui
                 const isPresentForDate = r.presencas?.[data] === true; // Verifica o status de presença para a data
 
                 // CORREÇÃO: A falta só é contada se a presença for false/undefined E a justificativa não for vazia
@@ -1532,85 +1543,150 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
         const logoUrl = '/logo-escola.png';
         let yOffset = 10;
 
-        const addContentToDoc = () => {
-            doc.setFontSize(14);
-            doc.text(`Relatório do(a) Aluno(a): ${completeReportData.aluno.nome}`, pageWidth / 2, yOffset, { align: 'center' });
+        // Define a função continuePdfContent dentro do escopo de exportCompleteReportPDF
+        // para que 'doc' esteja disponível por closure.
+        function continuePdfContent() {
+            doc.setFontSize(10);
+            doc.text(`Período do Relatório: ${completeReportData.periodo}`, 14, yOffset);
+            yOffset += 7;
+            doc.text(`Total de Faltas no Período: ${completeReportData.faltasAluno} (${completeReportData.porcentagemAluno}%)`, 14, yOffset);
+            yOffset += 7;
+            doc.text(`Turma: ${normalizeTurmaChar(completeReportData.aluno.turma)}`, 14, yOffset);
+            yOffset += 7;
+            doc.text(`Contato: ${completeReportData.aluno.contato}`, 14, yOffset);
+            yOffset += 7;
+            doc.text(`Responsável: ${completeReportData.aluno.responsavel}`, 14, yOffset);
+            // NOVIDADE ALERTA/CUIDADOS: Adiciona o Alerta/Cuidados no PDF
+            if (completeReportData.alertasCuidados) {
+                yOffset += 10; // Espaço antes da nova seção
+                doc.setFontSize(12);
+                doc.text('Alertas / Cuidados:', 14, yOffset);
+                yOffset += 5;
+                doc.setFontSize(10);
+                const splitText = doc.splitTextToSize(completeReportData.alertasCuidados, pageWidth - 28);
+                doc.text(splitText, 14, yOffset);
+                yOffset += (splitText.length * 5) + 5;
+            }
             yOffset += 10;
-            // NOVIDADE FOTO: Adiciona a foto do aluno ao PDF se existir
+            doc.setFontSize(12);
+            doc.text('Métricas Comparativas:', 14, yOffset);
+            yOffset += 7;
+            doc.setFontSize(10);
+            doc.text(`Percentual de Faltas do(a) Aluno(a): ${completeReportData.porcentagemAluno}%`, 14, yOffset);
+            yOffset += 7;
+            doc.text(`Média de Faltas da Turma: ${completeReportData.porcentagemTurma}%`, 14, yOffset);
+            yOffset += 7;
+            doc.text(`Média de Faltas da Escola: ${completeReportData.porcentagemEscola}%`, 14, yOffset);
+            yOffset += 10;
+            let finalY = yOffset;
+            if (completeReportData.justificativasNoPeriodo.length > 0) {
+                doc.setFontSize(12);
+                doc.text('Justificativas de Falta no Período:', 14, finalY);
+                finalY += 5;
+                const jusBody = completeReportData.justificativasNoPeriodo.map(jus => [jus.data, jus.justificativa]);
+                autoTable(doc, { startY: finalY, head: [['Data', 'Justificativa']], body: jusBody, styles: { fontSize: 8, halign: 'left' }, headStyles: { fillColor: [37, 99, 235] } });
+                finalY = doc.lastAutoTable.finalY;
+            }
+            if (completeReportData.observacoesAlunoNoPeriodo.length > 0) {
+                doc.setFontSize(12);
+                doc.text('Observações no Período:', 14, finalY + 10);
+                finalY += 15;
+                const obsBody = completeReportData.observacoesAlunoNoPeriodo.map(obs => [obs.data, obs.observacoes]);
+                autoTable(doc, { startY: finalY, head: [['Data', 'Observações']], body: obsBody, styles: { fontSize: 8, halign: 'left' }, headStyles: { fillColor: [37, 99, 235] } });
+            }
+
+            const pdfData = doc.output('blob'); // Salva o PDF como um Blob
+            const fileName = `Relatorio_${completeReportData.aluno.nome.replace(/ /g, '_')}.pdf`;
+            saveAs(pdfData, fileName); // Usa saveAs para salvar o blob
+        }
+
+        // Lógica de carregamento da logo da escola
+        const img = new Image();
+        img.src = logoUrl;
+        img.crossOrigin = "Anonymous";
+
+        img.onload = () => {
+            const logoWidth = 20;
+            const logoHeight = (img.height * logoWidth) / img.width;
+            const xLogo = (pageWidth - logoWidth) / 2;
+            doc.addImage(img, 'PNG', xLogo, yOffset, logoWidth, logoHeight);
+            yOffset += logoHeight + 5; // Ajustado para 5 para espaçamento consistente
+            doc.setFontSize(9);
+            doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' });
+            yOffset += 10;
+
+            // Se houver foto do aluno, carrega-a antes de continuar com o resto do conteúdo
             if (completeReportData.aluno.fotoUrl) {
-                const img = new Image();
-                img.src = completeReportData.aluno.fotoUrl; // Use logoUrl como fallback ou se for a mesma imagem
-                img.crossOrigin = "Anonymous"; // Necessário para imagens de outros domínios
-                img.onload = () => {
+                const alunoImg = new Image();
+                alunoImg.src = completeReportData.aluno.fotoUrl;
+                alunoImg.crossOrigin = "Anonymous";
+                alunoImg.onload = () => {
                     const imgWidth = 30; // Largura da imagem no PDF
-                    const imgHeight = (img.height * imgWidth) / img.width;
+                    const imgHeight = (alunoImg.height * imgWidth) / alunoImg.width;
                     const xImg = (pageWidth - imgWidth) / 2;
-                    // MODIFICAÇÃO: Usar 'JPEG' com qualidade para a foto do aluno
-                    doc.addImage(img, 'JPEG', xImg, yOffset, imgWidth, imgHeight, null, 'FAST');
+                    doc.addImage(alunoImg, 'JPEG', xImg, yOffset, imgWidth, imgHeight, null, 'FAST');
                     yOffset += imgHeight + 5;
+                    // Adicionar o nome do aluno aqui, após a foto
+                    doc.setFontSize(14); // Tamanho da fonte para o nome
+                    doc.text(completeReportData.aluno.nome, pageWidth / 2, yOffset, { align: 'center' });
+                    yOffset += 10; // Espaço após o nome
+                    continuePdfContent(); // Continua após a foto do aluno e o nome
+                };
+                alunoImg.onerror = () => {
+                    console.error("Erro ao carregar a foto do aluno para o PDF. Continuar sem a imagem.");
+                    // Adicionar o nome do aluno aqui, mesmo sem a foto
+                    doc.setFontSize(14); // Tamanho da fonte para o nome
+                    doc.text(completeReportData.aluno.nome, pageWidth / 2, yOffset, { align: 'center' });
+                    yOffset += 10; // Espaço após o nome
+                    continuePdfContent(); // Continua mesmo se a foto do aluno falhar
+                };
+            } else {
+                // Se não houver foto do aluno, adiciona apenas o nome
+                doc.setFontSize(14); // Tamanho da fonte para o nome
+                doc.text(completeReportData.aluno.nome, pageWidth / 2, yOffset, { align: 'center' });
+                yOffset += 10; // Espaço após o nome
+                continuePdfContent(); // Continua diretamente se não houver foto do aluno
+            }
+        };
+
+        img.onerror = () => {
+            console.error("Erro ao carregar a logo. Gerando PDF sem a imagem.");
+            doc.setFontSize(12);
+            doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' });
+            yOffset += 15;
+            // Se a logo falhar, mas houver foto do aluno, tenta carregar a foto do aluno
+            if (completeReportData.aluno.fotoUrl) {
+                const alunoImg = new Image();
+                alunoImg.src = completeReportData.aluno.fotoUrl;
+                alunoImg.crossOrigin = "Anonymous";
+                alunoImg.onload = () => {
+                    const imgWidth = 30;
+                    const imgHeight = (alunoImg.height * imgWidth) / alunoImg.width;
+                    const xImg = (pageWidth - imgWidth) / 2;
+                    doc.addImage(alunoImg, 'JPEG', xImg, yOffset, imgWidth, imgHeight, null, 'FAST');
+                    yOffset += imgHeight + 5;
+                    // Adicionar o nome do aluno aqui, após a foto
+                    doc.setFontSize(14); // Tamanho da fonte para o nome
+                    doc.text(completeReportData.aluno.nome, pageWidth / 2, yOffset, { align: 'center' });
+                    yOffset += 10; // Espaço após o nome
                     continuePdfContent();
                 };
-                img.onerror = () => {
+                alunoImg.onerror = () => {
                     console.error("Erro ao carregar a foto do aluno para o PDF. Continuar sem a imagem.");
+                    // Adicionar o nome do aluno aqui, mesmo sem a foto
+                    doc.setFontSize(14); // Tamanho da fonte para o nome
+                    doc.text(completeReportData.aluno.nome, pageWidth / 2, yOffset, { align: 'center' });
+                    yOffset += 10; // Espaço após o nome
                     continuePdfContent();
                 };
             } else {
-                continuePdfContent();
-            }
-
-            function continuePdfContent() {
-                doc.setFontSize(10);
-                doc.text(`Período do Relatório: ${completeReportData.periodo}`, 14, yOffset);
-                yOffset += 7;
-                doc.text(`Total de Faltas no Período: ${completeReportData.faltasAluno} (${completeReportData.porcentagemAluno}%)`, 14, yOffset);
-                yOffset += 7;
-                doc.text(`Turma: ${normalizeTurmaChar(completeReportData.aluno.turma)}`, 14, yOffset);
-                yOffset += 7;
-                doc.text(`Contato: ${completeReportData.aluno.contato}`, 14, yOffset);
-                yOffset += 7;
-                doc.text(`Responsável: ${completeReportData.aluno.responsavel}`, 14, yOffset);
-                // NOVIDADE ALERTA/CUIDADOS: Adiciona o Alerta/Cuidados no PDF
-                if (completeReportData.alertasCuidados) {
-                    yOffset += 10; // Espaço antes da nova seção
-                    doc.setFontSize(12);
-                    doc.text('Alertas / Cuidados:', 14, yOffset);
-                    yOffset += 5;
-                    doc.setFontSize(10);
-                    const splitText = doc.splitTextToSize(completeReportData.alertasCuidados, pageWidth - 28);
-                    doc.text(splitText, 14, yOffset);
-                    yOffset += (splitText.length * 5) + 5;
-                }
-                yOffset += 10;
-                doc.setFontSize(12);
-                doc.text('Métricas Comparativas:', 14, yOffset);
-                yOffset += 7;
-                doc.setFontSize(10);
-                doc.text(`Percentual de Faltas do(a) Aluno(a): ${completeReportData.porcentagemAluno}%`, 14, yOffset);
-                yOffset += 7;
-                doc.text(`Média de Faltas da Turma: ${completeReportData.porcentagemTurma}%`, 14, yOffset);
-                yOffset += 7;
-                doc.text(`Média de Faltas da Escola: ${completeReportData.porcentagemEscola}%`, 14, yOffset);
-                yOffset += 10;
-                let finalY = yOffset;
-                if (completeReportData.justificativasNoPeriodo.length > 0) {
-                    doc.setFontSize(12);
-                    doc.text('Justificativas de Falta no Período:', 14, finalY);
-                    finalY += 5;
-                    const jusBody = completeReportData.justificativasNoPeriodo.map(jus => [jus.data, jus.justificativa]);
-                    autoTable(doc, { startY: finalY, head: [['Data', 'Justificativa']], body: jusBody, styles: { fontSize: 8, halign: 'left' }, headStyles: { fillColor: [37, 99, 235] } });
-                    finalY = pdf.lastAutoTable.finalY;
-                }
-                if (completeReportData.observacoesAlunoNoPeriodo.length > 0) {
-                    doc.setFontSize(12);
-                    doc.text('Observações no Período:', 14, finalY + 10);
-                    finalY += 15;
-                    const obsBody = completeReportData.observacoesAlunoNoPeriodo.map(obs => [obs.data, obs.observacoes]);
-                    autoTable(doc, { startY: finalY, head: [['Data', 'Observações']], body: obsBody, styles: { fontSize: 8, halign: 'left' }, headStyles: { fillColor: [37, 99, 235] } });
-                }
-                doc.save(`relatorio_completo_${completeReportData.aluno.nome.replace(/ /g, '_')}.pdf`);
+                // Se não houver foto do aluno, adiciona apenas o nome
+                doc.setFontSize(14); // Tamanho da fonte para o nome
+                doc.text(completeReportData.aluno.nome, pageWidth / 2, yOffset, { align: 'center' });
+                yOffset += 10; // Espaço após o nome
+                continuePdfContent(); // Continua diretamente se não houver foto do aluno
             }
         };
-        const img = new Image(); img.src = logoUrl; img.crossOrigin = "Anonymous"; img.onload = () => { const logoWidth = 20; const logoHeight = (img.height * logoWidth) / img.width; const xLogo = (pageWidth - logoWidth) / 2; doc.addImage(img, 'PNG', xLogo, yOffset, logoWidth, logoHeight); yOffset += logoHeight + 5; doc.setFontSize(9); doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' }); yOffset += 10; addContentToDoc(); }; img.onerror = () => { console.error("Erro ao carregar a logo. Gerando PDF sem a imagem."); doc.setFontSize(12); doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' }); yOffset += 15; addContentToDoc(); };
     }, [completeReportData, getActualSchoolDatesBetween, nonSchoolDays]);
     const handleAbrirModalRecomposicao = useCallback((aluno) => { setAlunoParaRecompor(aluno); setIsRecomporModalOpen(true); setRecomporDataInicio(''); setRecomporDataFim(''); }, []);
     const handleConfirmarRecomposicao = useCallback(async () => { // Adicionado async
@@ -1641,9 +1717,9 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
 
                 Object.keys(novasJustificativas).forEach(chave => {
                     const dataDaFalta = chave.split('_')[2];
-                    const dateObj = new Date(dataDaFalta + 'T00:00:00');
-                    const dayOfWeek = dateObj.getDay();
-                    const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === dataDaFalta);
+                    const dateObj = new Date(dataDaFalta + 'T00:00:00'); // Definir dateObj aqui
+                    const dayOfWeek = dateObj.getDay(); // Definir dayOfWeek aqui
+                    const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === dataDaFalta); // Definir isNonSchoolDayDate aqui
 
                     // Só remove a justificativa se o dia for letivo (não fim de semana e não dia não letivo)
                     // E se a data for igual ou posterior à data de matrícula
@@ -1724,9 +1800,9 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                 if (shouldIncludeStudent && aluno.observacoes) {
                     Object.entries(aluno.observacoes).forEach(([chave, obsArray]) => {
                         const dataObs = chave.split('_')[2];
-                        const dateObj = new Date(dataObs + 'T00:00:00');
-                        const dayOfWeek = dateObj.getDay();
-                        const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === dataObs);
+                        const dateObj = new Date(dataObs + 'T00:00:00'); // Definir dateObj aqui
+                        const dayOfWeek = dateObj.getDay(); // Definir dayOfWeek aqui
+                        const isNonSchoolDayDate = nonSchoolDays.some(day => day.date === dataObs); // Definir isNonSchoolDayDate aqui
 
                         // NOVIDADE REQUERIDA: Apenas inclui observações de dias letivos a partir da data de matrícula
                         if (dataObs && dataObs >= dataInicio && dataObs <= dataFim && dayOfWeek !== 0 && dayOfWeek !== 6 && !isNonSchoolDayDate && dataObs >= aluno.dataMatricula) {
@@ -1800,7 +1876,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
             const logoHeight = (img.height * logoWidth) / img.width;
             const xLogo = (pageWidth - logoWidth) / 2;
             doc.addImage(img, 'PNG', xLogo, yOffset, logoWidth, logoHeight);
-            yOffset += logoHeight + 5;
+            yOffset += logoHeight + 5; // Ajustado para 5 para espaçamento consistente
             doc.setFontSize(9);
             doc.text(schoolName, pageWidth / 2, yOffset, { align: 'center' });
             yOffset += 10;
@@ -1940,64 +2016,17 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
 
                 for (const aluno of alunosDaTurma) {
                     // Re-calcula o relatório para cada aluno para garantir os dados mais recentes
-                    const reportData = calculateCompleteReport(aluno);
-                    if (reportData) {
-                        const pdf = new jsPDF();
-                        const pageWidth = pdf.internal.pageSize.getWidth();
-                        let yOffset = 10;
-                        const schoolName = `ESCOLA ESTADUAL CÍVICO-MILITAR PROFESSORA ANA MARIA DAS GRAÇAS DE SOUZA NORONHA`;
-                        const logoUrl = '/logo-escola.png';
+                    const pdf = new jsPDF();
+                    const pageWidth = pdf.internal.pageSize.getWidth();
+                    let yOffset = 10;
+                    const schoolName = `ESCOLA ESTADUAL CÍVICO-MILITAR PROFESSORA ANA MARIA DAS GRAÇAS DE SOUZA NORONHA`;
+                    const logoUrl = '/logo-escola.png';
 
-                        // Função para gerar o conteúdo do PDF (com logo e nome da escola)
-                        const generatePdfHeader = async () => {
-                            return new Promise(resolve => {
-                                const img = new Image();
-                                img.src = logoUrl;
-                                img.crossOrigin = "Anonymous";
-                                img.onload = () => {
-                                    const logoWidth = 20;
-                                    const logoHeight = (img.height * logoWidth) / img.width;
-                                    const xLogo = (pageWidth - logoWidth) / 2;
-                                    pdf.addImage(img, 'PNG', xLogo, yOffset, logoWidth, logoHeight);
-                                    yOffset += logoHeight + 5;
-                                    pdf.setFontSize(9);
-                                    pdf.text(schoolName, pageWidth / 2, yOffset, { align: 'center' });
-                                    yOffset += 10;
-                                    resolve();
-                                };
-                                img.onerror = () => {
-                                    console.error("Erro ao carregar a logo para o PDF. Gerando PDF sem a imagem.");
-                                    pdf.setFontSize(12);
-                                    pdf.text(schoolName, pageWidth / 2, yOffset, { align: 'center' });
-                                    yOffset += 15;
-                                    resolve();
-                                };
-                            });
-                        };
+                    // Define a função generatePdfContent dentro do escopo do loop para que 'pdf' esteja disponível.
+                    function generatePdfContent() {
+                        const reportData = calculateCompleteReport(aluno); // Recalcula aqui para garantir que reportData está atualizado
+                        if (!reportData) return; // Se não houver dados, não gera o PDF
 
-                        await generatePdfHeader();
-
-                        // Adiciona o conteúdo do relatório
-                        pdf.setFontSize(14);
-                        pdf.text(`Relatório do(a) Aluno(a): ${aluno.nome}`, pageWidth / 2, yOffset, { align: 'center' });
-                        yOffset += 10;
-                        if (aluno.fotoUrl) {
-                            const img = new Image();
-                            img.src = aluno.fotoUrl;
-                            img.crossOrigin = "Anonymous";
-                            await new Promise(resolve => {
-                                img.onload = () => {
-                                    const imgWidth = 30;
-                                    const imgHeight = (img.height * imgWidth) / img.width;
-                                    const xImg = (pageWidth - imgWidth) / 2;
-                                    pdf.addImage(img, 'JPEG', xImg, yOffset, imgWidth, imgHeight, null, 'FAST');
-                                    yOffset += imgHeight + 5;
-                                    resolve();
-                                };
-                                img.onerror = resolve; // Continue even if image fails
-                            });
-                        }
-                        yOffset += 5; // Adiciona um pequeno espaço após a foto
                         pdf.setFontSize(10);
                         pdf.text(`Período do Relatório: ${reportData.periodo}`, 14, yOffset);
                         yOffset += 7;
@@ -2015,41 +2044,128 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                             yOffset += 5;
                             pdf.setFontSize(10);
                             const splitText = pdf.splitTextToSize(reportData.alertasCuidados, pageWidth - 28);
-                            doc.text(splitText, 14, yOffset);
+                            pdf.text(splitText, 14, yOffset);
                             yOffset += (splitText.length * 5) + 5;
                         }
                         yOffset += 10;
                         pdf.setFontSize(12);
-                        doc.text('Métricas Comparativas:', 14, yOffset);
+                        pdf.text('Métricas Comparativas:', 14, yOffset);
                         yOffset += 7;
                         pdf.setFontSize(10);
-                        doc.text(`Percentual de Faltas do(a) Aluno(a): ${reportData.porcentagemAluno}%`, 14, yOffset);
+                        pdf.text(`Percentual de Faltas do(a) Aluno(a): ${reportData.porcentagemAluno}%`, 14, yOffset);
                         yOffset += 7;
-                        doc.text(`Média de Faltas da Turma: ${reportData.porcentagemTurma}%`, 14, yOffset);
+                        pdf.text(`Média de Faltas da Turma: ${reportData.porcentagemTurma}%`, 14, yOffset);
                         yOffset += 7;
-                        doc.text(`Média de Faltas da Escola: ${reportData.porcentagemEscola}%`, 14, yOffset);
+                        pdf.text(`Média de Faltas da Escola: ${reportData.porcentagemEscola}%`, 14, yOffset);
                         yOffset += 10;
                         let finalY = yOffset;
                         if (reportData.justificativasNoPeriodo.length > 0) {
-                            doc.setFontSize(12);
-                            doc.text('Justificativas de Falta no Período:', 14, finalY);
+                            pdf.setFontSize(12);
+                            pdf.text('Justificativas de Falta no Período:', 14, finalY);
                             finalY += 5;
                             const jusBody = reportData.justificativasNoPeriodo.map(jus => [jus.data, jus.justificativa]);
-                            autoTable(doc, { startY: finalY, head: [['Data', 'Justificativa']], body: jusBody, styles: { fontSize: 8, halign: 'left' }, headStyles: { fillColor: [37, 99, 235] } });
+                            autoTable(pdf, { startY: finalY, head: [['Data', 'Justificativa']], body: jusBody, styles: { fontSize: 8, halign: 'left' }, headStyles: { fillColor: [37, 99, 235] } });
                             finalY = pdf.lastAutoTable.finalY;
                         }
                         if (reportData.observacoesAlunoNoPeriodo.length > 0) {
-                            doc.setFontSize(12);
-                            doc.text('Observações no Período:', 14, finalY + 10);
+                            pdf.setFontSize(12);
+                            pdf.text('Observações no Período:', 14, finalY + 10);
                             finalY += 15;
                             const obsBody = reportData.observacoesAlunoNoPeriodo.map(obs => [obs.data, obs.observacoes]);
-                            autoTable(doc, { startY: finalY, head: [['Data', 'Observações']], body: obsBody, styles: { fontSize: 8, halign: 'left' }, headStyles: { fillColor: [37, 99, 235] } });
+                            autoTable(pdf, { startY: finalY, head: [['Data', 'Observações']], body: obsBody, styles: { fontSize: 8, halign: 'left' }, headStyles: { fillColor: [37, 99, 235] } });
                         }
-
-                        const pdfData = pdf.output('blob'); // Salva o PDF como um Blob
+                        const pdfData = pdf.output('blob');
                         const fileName = `Relatorio_${aluno.nome.replace(/ /g, '_')}.pdf`;
-                        turmaFolder.file(fileName, pdfData); // Adiciona o PDF ao arquivo ZIP
+                        turmaFolder.file(fileName, pdfData); // Adiciona ao ZIP
                     }
+
+                    // Lógica de carregamento da logo da escola (dentro do loop do aluno)
+                    const logoImg = new Image();
+                    logoImg.src = logoUrl;
+                    logoImg.crossOrigin = "Anonymous";
+
+                    logoImg.onload = () => {
+                        const logoWidth = 20;
+                        const logoHeight = (logoImg.height * logoWidth) / logoImg.width;
+                        const xLogo = (pageWidth - logoWidth) / 2;
+                        pdf.addImage(logoImg, 'PNG', xLogo, yOffset, logoWidth, logoHeight);
+                        yOffset += logoHeight + 5; // Ajustado para 5 para espaçamento consistente
+                        pdf.setFontSize(9);
+                        pdf.text(schoolName, pageWidth / 2, yOffset, { align: 'center' });
+                        yOffset += 10;
+
+                        // Se houver foto do aluno, carrega-a antes de continuar com o resto do conteúdo
+                        if (aluno.fotoUrl) {
+                            const alunoImg = new Image();
+                            alunoImg.src = aluno.fotoUrl;
+                            alunoImg.crossOrigin = "Anonymous";
+                            alunoImg.onload = () => {
+                                const imgWidth = 30;
+                                const imgHeight = (alunoImg.height * imgWidth) / alunoImg.width;
+                                const xImg = (pageWidth - imgWidth) / 2;
+                                pdf.addImage(alunoImg, 'JPEG', xImg, yOffset, imgWidth, imgHeight, null, 'FAST');
+                                yOffset += imgHeight + 5;
+                                // Adicionar o nome do aluno aqui, após a foto
+                                pdf.setFontSize(14); // Tamanho da fonte para o nome
+                                pdf.text(aluno.nome, pageWidth / 2, yOffset, { align: 'center' });
+                                yOffset += 10; // Espaço após o nome
+                                generatePdfContent(); // Continua após a foto do aluno e o nome
+                            };
+                            alunoImg.onerror = () => {
+                                console.error("Erro ao carregar a foto do aluno para o PDF. Continuando sem a imagem.");
+                                // Adicionar o nome do aluno aqui, mesmo sem a foto
+                                pdf.setFontSize(14); // Tamanho da fonte para o nome
+                                pdf.text(aluno.nome, pageWidth / 2, yOffset, { align: 'center' });
+                                yOffset += 10; // Espaço após o nome
+                                generatePdfContent(); // Continua mesmo se a foto do aluno falhar
+                            };
+                        } else {
+                            // Se não houver foto do aluno, adiciona apenas o nome
+                            pdf.setFontSize(14); // Tamanho da fonte para o nome
+                            pdf.text(aluno.nome, pageWidth / 2, yOffset, { align: 'center' });
+                            yOffset += 10; // Espaço após o nome
+                            generatePdfContent(); // Continua diretamente se não houver foto do aluno
+                        }
+                    };
+
+                    logoImg.onerror = () => {
+                        console.error("Erro ao carregar a logo. Gerando PDF sem a imagem.");
+                        pdf.setFontSize(12);
+                        pdf.text(schoolName, pageWidth / 2, yOffset, { align: 'center' });
+                        yOffset += 15;
+                        // Se a logo falhar, mas houver foto do aluno, tenta carregar a foto do aluno
+                        if (aluno.fotoUrl) {
+                            const alunoImg = new Image();
+                            alunoImg.src = aluno.fotoUrl;
+                            alunoImg.crossOrigin = "Anonymous";
+                            alunoImg.onload = () => {
+                                const imgWidth = 30;
+                                const imgHeight = (alunoImg.height * imgWidth) / alunoImg.width;
+                                const xImg = (pageWidth - imgWidth) / 2;
+                                pdf.addImage(alunoImg, 'JPEG', xImg, yOffset, imgWidth, imgHeight, null, 'FAST');
+                                yOffset += imgHeight + 5;
+                                // Adicionar o nome do aluno aqui, após a foto
+                                pdf.setFontSize(14); // Tamanho da fonte para o nome
+                                pdf.text(aluno.nome, pageWidth / 2, yOffset, { align: 'center' });
+                                yOffset += 10; // Espaço após o nome
+                                generatePdfContent();
+                            };
+                            alunoImg.onerror = () => {
+                                console.error("Erro ao carregar a foto do aluno para o PDF. Continuando sem a imagem.");
+                                // Adicionar o nome do aluno aqui, mesmo sem a foto
+                                pdf.setFontSize(14); // Tamanho da fonte para o nome
+                                pdf.text(aluno.nome, pageWidth / 2, yOffset, { align: 'center' });
+                                yOffset += 10; // Espaço após o nome
+                                generatePdfContent();
+                            };
+                        } else {
+                            // Se não houver foto do aluno, adiciona apenas o nome
+                            pdf.setFontSize(14); // Tamanho da fonte para o nome
+                            pdf.text(aluno.nome, pageWidth / 2, yOffset, { align: 'center' });
+                            yOffset += 10; // Espaço após o nome
+                            generatePdfContent();
+                        }
+                    };
                 }
             }
 
@@ -2546,15 +2662,16 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
                                         </h3>
 
                                         {/* NOVIDADE FOTO: Exibe a foto no relatório completo */}
-                                        {completeReportData.aluno.fotoUrl && (
-                                            <div className="mb-4 flex justify-center">
+                                        <div className="mb-4 flex justify-center">
+                                            {/* A imagem do aluno será carregada aqui */}
+                                            {completeReportData.aluno.fotoUrl && (
                                                 <img
                                                     src={completeReportData.aluno.fotoUrl}
                                                     alt={`Foto de ${completeReportData.aluno.nome}`}
                                                     className="w-32 h-32 object-cover rounded-full border-2 border-gray-300 dark:border-gray-600"
                                                 />
-                                            </div>
-                                        )}
+                                            )}
+                                        </div>
 
                                         <div className="flex gap-4 mb-6">
                                             <button
