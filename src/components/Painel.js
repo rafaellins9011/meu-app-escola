@@ -874,7 +874,6 @@ const Painel = ({ usuarioLogado, tipoUsuario, onLogout, senhaUsuario }) => {
 
         const aluno = currentAlunoForObservation;
         const dataAtualFormatada = formatarData(dataSelecionada);
-        const monitorNome = usuarioLogado;
         const alunoTurmaNormalizada = normalizeTurmaChar(aluno.turma);
 
         const messageParts = [];
@@ -905,7 +904,7 @@ Gostaríamos de informar que, na data de hoje ${dataAtualFormatada}, foram regis
 Agradecemos a atenção e o apoio de vocês.
 
 Atenciosamente,
-Monitor ${monitorNome}
+Gestão Militar
 EECIM Professora Ana Maria das Graças de Souza Noronha`);
 
         const fullMessage = messageParts.join('\n\n'); // Junta as partes com duas quebras de linha para parágrafos
@@ -913,7 +912,7 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
         const link = `https://wa.me/55${aluno.contato.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(fullMessage)}`;
         window.open(link, '_blank');
         closeObservationDropdown(); // Fecha o dropdown após enviar
-    }, [currentAlunoForObservation, tempSelectedObservations, otherObservationText, dataSelecionada, usuarioLogado, closeObservationDropdown]);
+    }, [currentAlunoForObservation, tempSelectedObservations, otherObservationText, dataSelecionada, closeObservationDropdown]);
 
     // NOVIDADE REQUERIDA: Função para Salvar e Enviar as observações
     const handleSaveAndSendCombined = useCallback(async () => {
@@ -936,10 +935,10 @@ EECIM Professora Ana Maria das Graças de Souza Noronha`);
         const diasSemana = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
         const diaSemana = dataObj.getDay();
         const dataFormatada = formatarData(dataSelecionada);
-        const texto = `Olá, ${aluno.responsavel}, informamos que ${aluno.nome} (${normalizeTurmaChar(aluno.turma)}) esteve ausente na escola, na data de hoje ${dataFormatada} (${diasSemana[diaSemana]}). Por favor, justificar a ausência.\n\nLembramos que faltas não justificadas podem resultar em notificações formais, conforme as diretrizes educacionais.\n\nAguardamos seu retorno.\n\nAtenciosamente,\nMonitor(a) ${usuarioLogado}\nEscola Cívico-Militar Profª Ana Maria das Graças de Souza Noronha`;
+        const texto = `Olá, ${aluno.responsavel}, informamos que ${aluno.nome} (${normalizeTurmaChar(aluno.turma)}) esteve ausente na escola, na data de hoje ${dataFormatada} (${diasSemana[diaSemana]}). Por favor, justificar a ausência.\n\nLembramos que faltas não justificadas podem resultar em notificações formais, conforme as diretrizes educacionais.\n\nAguardamos seu retorno.\n\nAtenciosamente,\nGestão Militar\nEscola Cívico-Militar Profª Ana Maria das Graças de Souza Noronha`;
         const link = `https://wa.me/55${aluno.contato.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(texto)}`;
         window.open(link, '_blank');
-    }, [dataSelecionada, usuarioLogado]);
+    }, [dataSelecionada]);
 
 
     // MODIFICADO: exportarPeriodo agora aceita um flag para exportar todas as turmas
